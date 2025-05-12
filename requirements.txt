@@ -1,0 +1,7 @@
+streamlit
+pyspark
+spark
+pandas
+openpyxl
+python-dotenv
+pyodbc
