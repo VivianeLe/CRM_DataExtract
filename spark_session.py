@@ -1,27 +1,30 @@
 import os
 from pyspark.sql import SparkSession
 import streamlit as st
+import glob
+
 os.environ["HADOOP_HOME"] = "C:\\hadoop"
 os.environ["hadoop.home.dir"] = "C:\\hadoop"
 
 @st.cache_resource
 def init_spark():
     spark = SparkSession.builder \
-        .appName("MySQL Data Transform") \
-        .config("spark.default.parallelism", "14")\
+        .appName("CRM Data Extract") \
         .master(f"local[{os.cpu_count()}]") \
-        .config("spark.jars", r"C:\sqljdbc_12.10\enu\jars\mssql-jdbc-12.10.0.jre11.jar") \
-        .config("spark.local.dir", r"C:\spark-temp") \
-        .config("spark.driver.memory", "8g") \
-        .config("spark.sql.shuffle.partitions", "14")\
+        .config("spark.jars", "/app/mssql-jdbc-12.10.0.jre11.jar") \
+        .config("spark.driver.memory", "12g") \
+        .config("spark.executor.memory", "12g") \
+        .config("spark.sql.shuffle.partitions", "28") \
+        .config("spark.default.parallelism", "28") \
+        .config("spark.local.dir", "/tmp/spark-temp") \
         .getOrCreate()
+    # spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
     return spark
 
 def markdown():
     st.markdown("""
     <style>
-
-    /* Banner custom */
+    /* --- Banner custom --- */
     .gold-banner {
         background-color: #FFD700;
         padding: 12px;
@@ -37,30 +40,52 @@ def markdown():
         font-weight: bold;
     }
 
-    /* Text and button */
-    .stButton>button {
-        background-color: #FFD700;
-        color: black;
+    /* --- Button styling --- */
+    .stButton>button,
+    button[kind="primary"] {
+        background-color: #FFD700 !important;
+        color: black !important;
         font-weight: bold;
         border: none;
-        border-radius: 6px;
+        border-radius: 8px;
         padding: 0.5em 1.5em;
     }
+                
+    .stDownloadButton>button {
+    background-color: #FFD700;
+    color: black;
+    font-weight: bold;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5em 1.5em;
+}
 
-    .stButton>button:hover {
-        background-color: #e6c200;
-        color: black;
-    }
+.stDownloadButton>button:hover {
+    background-color: #e6c200;
+    color: black;
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown("""
-<style>
-button[kind="primary"] {
-    background-color: #FFD700 !important;
-    color: black !important;
-    font-weight: bold;
-    border-radius: 8px;
-}
-</style>
-""", unsafe_allow_html=True)
+def save_csv_file(data, file_name):
+    output_dir = "/tmp/output_csv"
+    output_file = f"/tmp/{file_name}.csv"
+    data.write.mode("overwrite").option("header", True).csv(output_dir)
+
+    # combine into 1 file
+    part_files = sorted(glob.glob(f"{output_dir}/part-*.csv"))
+    with open(output_file, "w", encoding="utf-8") as f_out:
+        for i, part_file in enumerate(part_files):
+            with open(part_file, "r", encoding="utf-8") as f_in:
+                lines = f_in.readlines()
+                if i == 0:
+                    f_out.writelines(lines)
+                else:
+                    f_out.writelines(lines[1:])
+
+    with open(output_file, "rb") as f:
+        st.download_button(
+            label="📥 Download CSV",
+            data=f,
+            file_name=f"{file_name}",
+            mime="text/csv"
+        )

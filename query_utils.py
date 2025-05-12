@@ -84,7 +84,7 @@ def query_history(spark, user_ids_df, start_date):
     # This function check activity of users before receiving MKT messages
     query = f"""
         SELECT User_ID, datediff(day, max(DateID), cast('{start_date}' as date)) as inactive_days
-         FROM dbo.fact_orders o
+         FROM dbo.fact_orders
          WHERE Creation_date < '{start_date}'
          GROUP BY User_ID
     """
@@ -258,8 +258,8 @@ def extract_data(spark, operator, filters=None, segment=None):
             .groupBy("User_ID")\
             .agg(
                 sum("Turnover").alias("Turnover"),
-                sum(when(col("Lottery")=="Instant", col("Prize"))).alias("Instant_prize"),
-                sum(when((col("Lottery")=="Lucky Day") & (col("Prize")<100000), col("Prize"))).alias("Draw_prize")
+                sum(when(col("Lottery")=="Instant", col("Prize")).otherwise(0)).alias("Instant_prize"),
+                sum(when((col("Lottery")=="Lucky Day") & (col("Prize")<100000), col("Prize")).otherwise(0)).alias("Draw_prize")
             )
         refund_query = """
             select User_ID, sum(Refund_amount) as refund
@@ -272,8 +272,14 @@ def extract_data(spark, operator, filters=None, segment=None):
                 .join(withdraw, on="User_ID", how="left")\
                 .join(refund, on="User_ID", how="left")\
                 .join(to_exclude, on="User_ID", how="left_anti")\
+                .fillna(0, subset=["Turnover", "refund", "withdraw", "Instant_prize", "Draw_prize"])\
                 .withColumn("balance",
-                    col("success_amount")-col("Turnover")-col("refund")+col("Instant_prize")+col("Draw_prize")
+                    col("success_amount") -
+                    coalesce(col("Turnover"), lit(0)) -
+                    coalesce(col("refund"), lit(0)) -
+                    coalesce(col("withdraw"), lit(0)) +
+                    coalesce(col("Instant_prize"), lit(0)) +
+                    coalesce(col("Draw_prize"), lit(0))
                 ).filter(col("balance")>0)\
                 .select("User_ID", "balance")
         

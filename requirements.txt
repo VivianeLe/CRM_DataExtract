@@ -1,6 +1,6 @@
 streamlit
 pyspark
-spark
+findspark
 pandas
 openpyxl
 python-dotenv

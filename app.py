@@ -4,7 +4,6 @@ import datetime
 from spark_session import *
 from query_utils import *
 import builtins
-
 # st.set_page_config(layout="wide")
 # st.title("🔍 Check User Activity")
 
@@ -275,26 +274,30 @@ elif page == "Data extracting":
             data = extract_data(spark, operator, filters, segment)
             st.write("Extracting ", data.count(), " users...")
             file_name = f"{operator.replace(' ', '_')}.csv"
-            output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-            data.toPandas().to_csv(output_path, index=False, mode='w')
+            # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
 
-            st.success("✅ **Data successfully extracted and saved to Downloads folder.**\n \n "
+            # For docker to find/create Downloads folder
+            # csv_data = data.toPandas().to_csv(index=False)
+
+            save_csv_file(data, file_name)
+            
+            st.success("✅ **Data successfully extracted, now you can download it.**\n \n "
                     "RG limit, opted out, suspend, close, locked, restricted accounts are already excluded."
                     )
 
-            st.markdown("---")
-            if st.button("❌ Close session"):
-                spark.stop()
-                st.cache_resource.clear()
-                st.success("🛑 Spark session closed and database connection terminated.")
         except Exception as e:
             st.error(f"❌ An error occurred while extracting or saving data:\n{e}")
     
     st.markdown("---")
     if st.button("📛 Validate users must exclude"):
-        exclude_data = extract_data(spark, "Users must exclude")
-        st.write(exclude_data.count(), " users must be excluded from Marketing campaigns")
+        data = extract_data(spark, "Users must exclude")
+        st.write(data.count(), " users must be excluded from Marketing campaigns")
+
         file_name = "Users_must_exclude.csv"
-        output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-        exclude_data.toPandas().to_csv(output_path, index=False, mode='w')
-        st.success("✅ Excluded users list saved to Downloads folder.")
+        save_csv_file(data, file_name)
+        st.success("✅ Data successfully extracted, now you can download it.")
+
+    if st.button("❌ Close session"):
+        spark.stop()
+        st.cache_resource.clear()
+        st.success("🛑 Spark session closed and database connection terminated.")
