@@ -1,1 +1,29 @@
-.env 
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+
+# Ignore environment files
+.env
+.env.*
+
+# Ignore virtual environments
+venv/
+.env/
+*.venv/
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore VSCode settings
+.vscode/
+
+# Ignore data files and temp output
+*.csv
+*.parquet
+*.delta
+*.log
+*.tmp
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
