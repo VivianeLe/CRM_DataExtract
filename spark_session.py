@@ -8,17 +8,27 @@ os.environ["hadoop.home.dir"] = "C:\\hadoop"
 
 @st.cache_resource
 def init_spark():
+    # spark = SparkSession.builder \
+    #     .appName("CRM Data Extract") \
+    #     .master(f"local[{os.cpu_count()}]") \
+    #     .config("spark.jars", "/app/mssql-jdbc-12.10.0.jre11.jar") \
+    #     .config("spark.driver.memory", "12g") \
+    #     .config("spark.executor.memory", "12g") \
+    #     .config("spark.sql.shuffle.partitions", "28") \
+    #     .config("spark.default.parallelism", "28") \
+    #     .config("spark.local.dir", "/tmp/spark-temp") \
+    #     .getOrCreate()
+
     spark = SparkSession.builder \
         .appName("CRM Data Extract") \
         .master(f"local[{os.cpu_count()}]") \
-        .config("spark.jars", "/app/mssql-jdbc-12.10.0.jre11.jar") \
+        .config("spark.jars", r"C:\Users\VanAnhLe\OneDrive - MGH\Documents\Python\CRM_DataExtract\mssql-jdbc-12.10.0.jre11.jar") \
         .config("spark.driver.memory", "12g") \
         .config("spark.executor.memory", "12g") \
         .config("spark.sql.shuffle.partitions", "28") \
         .config("spark.default.parallelism", "28") \
-        .config("spark.local.dir", "/tmp/spark-temp") \
+        .config("spark.local.dir", "C:/spark-temp") \
         .getOrCreate()
-    # spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
     return spark
 
 def markdown():

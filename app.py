@@ -237,23 +237,26 @@ elif page == "Data extracting":
         dim_segments = run_select_query(spark, "select * from dbo.dim_rfm_segment_list")\
             .select("Segment").distinct().collect()
         dim_segments = [row["Segment"] for row in dim_segments]
+        dim_segments.insert(0, "All Instant games")
         segment = st.selectbox("Segments: ", dim_segments)
 
     elif operator == "Top N by Draw series":
-        draw_period = st.number_input("Draw series No. (type 0 for all series)", min_value=0, value=1, key="draw_period")
         by_product = st.selectbox("By Game Type", [
             "Lucky Day",
             "Instant"
         ])
-
         instant_games = None
         if by_product == "Instant":
-            instant_games = run_select_query(spark, "select GameName from dbo.dim_series")\
+            instant_games = run_select_query(spark, "select GameType, GameName from dbo.dim_series")\
+                .filter(col("GameType")=='Instant')\
                 .select("GameName").distinct().collect()
             instant_games = [row["GameName"] for row in instant_games]
+            instant_games.insert(0, "All Instant games")
 
             st.markdown('<div style="padding-left: 30px"><b>🎮 Instant Game</b></div>', unsafe_allow_html=True)
             instant_games = st.selectbox("", instant_games, key="instant_game", label_visibility="collapsed")
+
+        draw_period = st.number_input("Draw series No. (type 0 for all series)", min_value=0, value=1, key="draw_period")
 
         top = st.number_input("Top N users", min_value=1, value=50, key="top")
         by_field = st.selectbox("Sort by", [
@@ -274,12 +277,10 @@ elif page == "Data extracting":
             data = extract_data(spark, operator, filters, segment)
             st.write("Extracting ", data.count(), " users...")
             file_name = f"{operator.replace(' ', '_')}.csv"
-            # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+            output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+            csv_data = data.toPandas().to_csv(output_path, index=False)
 
-            # For docker to find/create Downloads folder
-            # csv_data = data.toPandas().to_csv(index=False)
-
-            save_csv_file(data, file_name)
+            # save_csv_file(data, file_name)
             
             st.success("✅ **Data successfully extracted, now you can download it.**\n \n "
                     "RG limit, opted out, suspend, close, locked, restricted accounts are already excluded."

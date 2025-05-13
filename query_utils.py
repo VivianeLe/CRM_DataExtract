@@ -137,6 +137,7 @@ def extract_data(spark, operator, filters=None, segment=None):
             select User_ID, verification_status
             from dbo.dim_user_authentication
             where verification_status <> 'Verified'
+            or verification_status is null
             """
     elif operator == "All users":
         query = f""" 
@@ -180,7 +181,7 @@ def extract_data(spark, operator, filters=None, segment=None):
                  sum("Turnover").alias("Turnover"),
                  sum("Prize").alias("Prize"),
                  (sum("Turnover") - sum("Prize")).alias("GGR")
-                 )
+                 ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))
             
         # for column, (op, value) in filters.items():
         #     if op == ">=":
@@ -197,23 +198,44 @@ def extract_data(spark, operator, filters=None, segment=None):
             .join(to_exclude, on="User_ID", how="left_anti")\
             .join(dim_series, on="Series_No", how="left")\
             .filter(col("GameType")==filters["by_product"])\
-
-        if filters["draw_period"] > 0:
-            df = df.filter(col("Draw_Period")==filters["draw_period"])
         
         if filters["by_product"] == "Instant":
-            df = df.filter(col("GameName")==filters["instant_game"])
-            df = df.groupBy("User_ID", "GameName")\
-                .agg(
-                    sum("Entries").alias("Ticket"),
-                    sum("Turnover").alias("Turnover"),
-                    sum("Prize").alias("Prize"),
-                    (sum("Turnover")-sum("Prize")).alias("GGR")
-                )
+            if filters["instant_game"] != 'All Instant games':
+                df = df.filter(col("GameName")==filters["instant_game"])
+        
+        if filters["draw_period"] > 0:
+            df = df.filter(col("Draw_Period")==filters["draw_period"])
+
+            if filters["instant_game"] != 'All Instant games':
+                df = df.groupBy("User_ID", "Draw_Period", "GameName")\
+                    .agg(
+                        sum("Entries").alias("Ticket"),
+                        sum("Turnover").alias("Turnover"),
+                        sum("Prize").alias("Prize"),
+                        (sum("Turnover")-sum("Prize")).alias("GGR")
+                    )
+            else:
+                df = df.groupBy("User_ID", "Draw_Period", "GameType")\
+                    .agg(
+                        sum("Entries").alias("Ticket"),
+                        sum("Turnover").alias("Turnover"),
+                        sum("Prize").alias("Prize"),
+                        (sum("Turnover")-sum("Prize")).alias("GGR")
+                    )
         else:
-            df = df.groupBy("User_ID")\
+            if (filters["by_product"] == "Lucky Day") | (filters["instant_game"] == 'All Instant games'):
+                df = df.groupBy("User_ID", "GameType")\
+                    .agg(
+                        count_distinct("Series_No").alias("distinct_series_bought"),
+                        sum("Entries").alias("Ticket"),
+                        sum("Turnover").alias("Turnover"),
+                        sum("Prize").alias("Prize"),
+                        (sum("Turnover")-sum("Prize")).alias("GGR")
+                    )
+                
+            else:
+                df = df.groupBy("User_ID", "GameName")\
                 .agg(
-                    count_distinct("Draw_Period").alias("distinct_series_bought"),
                     sum("Entries").alias("Ticket"),
                     sum("Turnover").alias("Turnover"),
                     sum("Prize").alias("Prize"),
