@@ -72,7 +72,7 @@ if page == "Activity checking":
                 turnover = result.groupBy().agg(sum("Turnover")).collect()[0][0]
                 progress_bar.progress(80, text="Summarizing data ✅")
 
-                by_gameType = result.groupBy("GameType").agg(
+                by_gameType = result.groupBy("Lottery").agg(
                     sum("Entries").alias("Ticket sold"),
                     sum("Turnover").alias("Turnover")
                 ).toPandas()
@@ -204,14 +204,16 @@ elif page == "Data extracting":
     operator = st.selectbox("Filter by: ", 
                                       ["All users",
                                        "RFM Segments",
-                                       "KYC no eKYC (or fail)", 
+                                       "No eKYC (or fail)", 
                                        "No attempt deposit",
                                        "No success deposit",
                                        "No order",
                                        "Order behavior",
+                                       "Only Instant",
+                                       "Only Lucky Day",
+                                       "Top N by Draw series",
                                        "Deposit behavior",
-                                       "Wallet balance",
-                                       "Top N by Draw series"
+                                       "Wallet balance"
                                        ])
 
     filters = {}
@@ -237,7 +239,6 @@ elif page == "Data extracting":
         dim_segments = run_select_query(spark, "select * from dbo.dim_rfm_segment_list")\
             .select("Segment").distinct().collect()
         dim_segments = [row["Segment"] for row in dim_segments]
-        dim_segments.insert(0, "All Instant games")
         segment = st.selectbox("Segments: ", dim_segments)
 
     elif operator == "Top N by Draw series":
@@ -245,18 +246,27 @@ elif page == "Data extracting":
             "Lucky Day",
             "Instant"
         ])
-        instant_games = None
+        ticket_price = None
         if by_product == "Instant":
-            instant_games = run_select_query(spark, "select GameType, GameName from dbo.dim_series")\
+            ticket_price = run_select_query(spark, "select GameType, Unit_Price from dbo.dim_series")\
                 .filter(col("GameType")=='Instant')\
-                .select("GameName").distinct().collect()
-            instant_games = [row["GameName"] for row in instant_games]
-            instant_games.insert(0, "All Instant games")
+                .select("Unit_Price").distinct().collect()
+            ticket_price = [row["Unit_Price"] for row in ticket_price]
+            ticket_price.insert(0, "All Instant games")
 
-            st.markdown('<div style="padding-left: 30px"><b>🎮 Instant Game</b></div>', unsafe_allow_html=True)
-            instant_games = st.selectbox("", instant_games, key="instant_game", label_visibility="collapsed")
+            st.markdown('<div style="padding-left: 30px"><b>🎮 Ticket price (AED)</b></div>', unsafe_allow_html=True)
+            ticket_price = st.selectbox("", ticket_price, key="ticket_price", label_visibility="collapsed")
 
-        draw_period = st.number_input("Draw series No. (type 0 for all series)", min_value=0, value=1, key="draw_period")
+        draw_period_input = st.text_input("Draw period (enter numbers separated by commas, e.g. 3,5,6 or leave blank for all)",
+                                           key="draw_period")
+        if draw_period_input.strip():
+            try:
+                draw_periods = [int(x.strip()) for x in draw_period_input.split(',') if x.strip().isdigit()]
+            except ValueError:
+                st.error("❌ Please enter only integers separated by commas.")
+                draw_periods = []
+        else:
+            draw_periods = []  # empty means all
 
         top = st.number_input("Top N users", min_value=1, value=50, key="top")
         by_field = st.selectbox("Sort by", [
@@ -266,9 +276,9 @@ elif page == "Data extracting":
             "GGR"
         ])
 
-        filters = {"draw_period": int(draw_period),
+        filters = {"draw_period": draw_periods,
                   "by_product": by_product,
-                  "instant_game": instant_games,
+                  "ticket_price": ticket_price,
                   "top": int(top),
                   "by_field": by_field}
 
@@ -288,14 +298,18 @@ elif page == "Data extracting":
 
         except Exception as e:
             st.error(f"❌ An error occurred while extracting or saving data:\n{e}")
+            # st.error(f"❌ There is no result for your filter condition")
     
     st.markdown("---")
-    if st.button("📛 Validate users must exclude"):
+    st.header("Validate your list before running campaign: ")
+    if st.button("📛 Download must-exclude users"):
         data = extract_data(spark, "Users must exclude")
         st.write(data.count(), " users must be excluded from Marketing campaigns")
 
-        file_name = "Users_must_exclude.csv"
-        save_csv_file(data, file_name)
+        file_name = "Must_exclude_users.csv"
+        output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+        csv_data = data.toPandas().to_csv(output_path, index=False)
+        # save_csv_file(data, file_name)
         st.success("✅ Data successfully extracted, now you can download it.")
 
     if st.button("❌ Close session"):

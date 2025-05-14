@@ -67,31 +67,24 @@ def update_dim_user(df, table, query):
 
 def query_data(spark, user_ids_df, start_date, end_date):
     # This function check activity of users after receiving marketing message
-    dim_series = run_select_query(spark, """select SeriesNo as Series_No, 
-                        GameType from dbo.dim_series""")
-    query = f"""
-        SELECT User_ID, Order_ID, Series_No, Entries, Turnover, Prize
-         FROM dbo.fact_orders o
-         WHERE Creation_date BETWEEN '{start_date}' AND '{end_date}'
-    """
-    df = run_select_query(spark, query)\
-        .join(dim_series, on="Series_No", how="left")
-
+    df = get_order(spark).filter(
+        (col("Creation_date") >= lit(start_date)) &
+        (col("Creation_date") <= lit(end_date))
+    )
     result = df.join(user_ids_df, on="User_ID", how="inner")
     return result
 
 def query_history(spark, user_ids_df, start_date):
     # This function check activity of users before receiving MKT messages
-    query = f"""
-        SELECT User_ID, datediff(day, max(DateID), cast('{start_date}' as date)) as inactive_days
-         FROM dbo.fact_orders
-         WHERE Creation_date < '{start_date}'
-         GROUP BY User_ID
-    """
-    df = run_select_query(spark, query)
+    df = get_order(spark).filter(col("Creation_date") < lit(start_date)) \
+        .groupBy("User_ID") \
+        .agg(
+            datediff(to_date(lit(start_date)), max("DateID")).alias("inactive_days")
+        )
+
     result = df.join(user_ids_df, on="User_ID", how="inner") \
-               .withColumn("inactive_month", concat(ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
-    
+        .withColumn("inactive_month", concat(ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
+
     return result
 
 def run_select_query(spark, query):
@@ -102,9 +95,14 @@ def run_select_query(spark, query):
             .load()
     return df
 
+def get_series(spark):
+    return run_select_query(spark, """select SeriesNo as Series_No, 
+                        GameType, GameName, Unit_Price from dbo.dim_series""")
+
 def get_order(spark):
-    query = """select DateID, Series_No, User_ID, Orders, Entries, Turnover, Prize, Draw_Period
-                from dbo.fact_orders_summary
+    query = """select DateID, Series_No, User_ID, Lottery, Order_ID, Creation_date, 
+                Entries, Turnover, Prize, Draw_Period
+                from dbo.fact_orders
             """
     df = run_select_query(spark, query)
     return df
@@ -117,133 +115,99 @@ def get_deposit(spark):
     return df
 
 def extract_data(spark, operator, filters=None, segment=None):       
-    exclude_query = """
-            select User_ID, RG_limit,
-            receive_mail, receive_message, receive_sms, user_status
+    user_query = """ 
+            select User_ID, verification_status, nationality, attempt_depo, FTD, FTP,
+            RG_limit, receive_mail, receive_message, receive_sms, user_status
             from dbo.dim_user_authentication
-            where RG_limit = 1
-            or receive_mail = 0
-            or receive_message = 0
-            or receive_sms = 0
-            or user_status <> 'Normal'
-            """
-    to_exclude = run_select_query(spark, exclude_query)
-    dim_series = run_select_query(spark, """select SeriesNo as Series_No, 
-                        GameType, GameName from dbo.dim_series""")
+        """
+    users = run_select_query(spark, user_query)
+    to_exclude = users.filter(
+        (col("RG_limit")==1) | (col("receive_mail")==0) |
+        (col("receive_message")==0) | (col("receive_sms")==0) |
+        (col("user_status") != "Normal")
+    ).select("User_ID", "RG_limit", "receive_mail", "receive_message", "receive_sms", "user_status")
+    users = users.join(to_exclude, on="User_ID", how="left_anti")
 
-    # Get query based on operator selected
-    if operator == "KYC no eKYC (or fail)":
-        query = f""" 
-            select User_ID, verification_status
-            from dbo.dim_user_authentication
-            where verification_status <> 'Verified'
-            or verification_status is null
-            """
-    elif operator == "All users":
-        query = f""" 
-            select User_ID, verification_status, nationality
-            from dbo.dim_user_authentication
-            """
-    elif operator == "No attempt deposit":
-        query = f"""
-            select User_ID, attempt_depo
-            from dbo.dim_user_authentication
-            where attempt_depo is null
-            """
-    elif operator == "No success deposit":
-        query = f"""
-            select User_ID, attempt_depo, FTD
-            from dbo.dim_user_authentication
-            where FTD is null
-            """
-    elif operator == "No order":
-        query = f"""
-            select User_ID, verification_status, attempt_depo, FTD, FTP
-            from dbo.dim_user_authentication
-            where FTP is null
-            """       
+    dim_series = get_series(spark)
+    orders = get_order(spark).join(to_exclude,  on="User_ID", how="left_anti")
+    deposit = get_deposit(spark).join(to_exclude, on="User_ID", how="left_anti")\
+        .groupBy("User_ID").agg(
+                count("top_up_id").alias("attempt_transaction"),
+                sum(when(col("top_up_state")=='Success', col("top_up_amount"))).alias("success_amount")
+            )
     
-    # Run query based on operator selected
-    if operator == "Order behavior":
-        df = get_order(spark)
+    # Get query based on operator selected
+    if operator == "No eKYC (or fail)":
+        df = users.filter((col("verification_status") != 'Verified') |
+                          (col("verification_status").isNull()))\
+                .select("User_ID", "verification_status")
         
-        df = df.join(to_exclude, on="User_ID", how="left_anti")\
-            .join(dim_series, on="Series_No", how="left")\
+    elif operator == "All users":
+        df = users.select("User_ID", "verification_status", "nationality")
+
+    elif operator == "No attempt deposit":
+        df = users.filter(col("attempt_depo").isNull()).select("User_ID", "verification_status")
+
+    elif operator == "No success deposit":
+        df = users.filter(col("FTD").isNull()).select("User_ID", "attempt_depo")
+
+    elif operator == "No order":
+        df = users.filter(col("FTP").isNull()).select("User_ID", "verification_status", "attempt_depo", "FTD")     
+    
+    elif operator == "Order behavior":
+        df = orders\
             .groupBy("User_ID")\
             .agg(min("DateID").alias("First_order_date"),
                  max("DateID").alias("Last_order_date"),
                  datediff(current_date(), max("DateID")).alias("inactive_days"),
-                 count_distinct(when(col("GameType")=="Lucky Day", col("Draw_Period"))).alias("distinct_series_bought"),
-                 max(when(col("GameType")=="Lucky Day", col("Draw_Period"))).alias("Last_draw_series"),
-                 collect_set("GameType").alias("Product_bought"),
-                 sum("Orders").alias("Orders"),
+                 count_distinct(when(col("Lottery")=="Lucky Day", col("Draw_Period"))).alias("distinct_series_bought"),
+                 max(when(col("Lottery")=="Lucky Day", col("Draw_Period"))).alias("Last_draw_series"),
+                 collect_set("Lottery").alias("Product_bought"),
+                 count("Order_ID").alias("Orders"),
                  sum("Entries").alias("Tickets"),
                  sum("Turnover").alias("Turnover"),
                  sum("Prize").alias("Prize"),
                  (sum("Turnover") - sum("Prize")).alias("GGR")
                  ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))
-            
-        # for column, (op, value) in filters.items():
-        #     if op == ">=":
-        #         df = df.filter(col(column) >= value)
-        #     elif op == "<=":
-        #         df = df.filter(col(column) <= value)
-        #     elif op == "=":
-        #         df = df.filter(col(column) == value)
-        #     elif op == "<>":
-        #         df = df.filter(col(column) != value)
     
+    elif operator in ["Only Instant", "Only Lucky Day"]:
+        target_type = "Instant" if operator == "Only Instant" else "Lucky Day"
+        df = orders\
+            .groupBy("User_ID")\
+            .agg(collect_set("Lottery").alias("Product_bought"))\
+            .withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
+            .filter(col("Product_bought") == target_type)
+            
     elif operator == "Top N by Draw series":
-        df = get_order(spark)\
-            .join(to_exclude, on="User_ID", how="left_anti")\
+        df = orders\
             .join(dim_series, on="Series_No", how="left")\
             .filter(col("GameType")==filters["by_product"])\
         
         if filters["by_product"] == "Instant":
-            if filters["instant_game"] != 'All Instant games':
-                df = df.filter(col("GameName")==filters["instant_game"])
+            if filters["ticket_price"] != 'All Instant games':
+                df = df.filter(col("Unit_Price")==filters["ticket_price"])
+
+        group_cols = ["User_ID"]
+        agg_exprs = [
+            sum("Entries").alias("Ticket"),
+            sum("Turnover").alias("Turnover"),
+            sum("Prize").alias("Prize"),
+            (sum("Turnover") - sum("Prize")).alias("GGR")
+        ]
         
-        if filters["draw_period"] > 0:
-            df = df.filter(col("Draw_Period")==filters["draw_period"])
+        if filters["draw_period"]:
+            df = df.filter(col("Draw_Period").isin(filters["draw_period"]))
 
-            if filters["instant_game"] != 'All Instant games':
-                df = df.groupBy("User_ID", "Draw_Period", "GameName")\
-                    .agg(
-                        sum("Entries").alias("Ticket"),
-                        sum("Turnover").alias("Turnover"),
-                        sum("Prize").alias("Prize"),
-                        (sum("Turnover")-sum("Prize")).alias("GGR")
-                    )
-            else:
-                df = df.groupBy("User_ID", "Draw_Period", "GameType")\
-                    .agg(
-                        sum("Entries").alias("Ticket"),
-                        sum("Turnover").alias("Turnover"),
-                        sum("Prize").alias("Prize"),
-                        (sum("Turnover")-sum("Prize")).alias("GGR")
-                    )
-        else:
-            if (filters["by_product"] == "Lucky Day") | (filters["instant_game"] == 'All Instant games'):
-                df = df.groupBy("User_ID", "GameType")\
-                    .agg(
-                        count_distinct("Series_No").alias("distinct_series_bought"),
-                        sum("Entries").alias("Ticket"),
-                        sum("Turnover").alias("Turnover"),
-                        sum("Prize").alias("Prize"),
-                        (sum("Turnover")-sum("Prize")).alias("GGR")
-                    )
-                
-            else:
-                df = df.groupBy("User_ID", "GameName")\
-                .agg(
-                    sum("Entries").alias("Ticket"),
-                    sum("Turnover").alias("Turnover"),
-                    sum("Prize").alias("Prize"),
-                    (sum("Turnover")-sum("Prize")).alias("GGR")
-                )
+        else: # all periods
+            if (filters["by_product"] == "Lucky Day") | (filters["ticket_price"] == 'All Instant games'):
+                agg_exprs.insert(0, count_distinct("Series_No").alias("distinct_series_bought"))
 
+        df = df.groupBy(*group_cols).agg(*agg_exprs)
         df = df.orderBy(col(filters["by_field"]).desc())\
-            .limit(filters["top"])
+            .limit(filters["top"])\
+            .withColumn("Draw_period", lit(filters["draw_period"]))\
+            .withColumn("GameType", lit(filters["by_product"]))\
+            .withColumn("Unit_Price", lit(filters["ticket_price"]))
 
 
     elif operator == "RFM Segments":
@@ -253,18 +217,10 @@ def extract_data(spark, operator, filters=None, segment=None):
 
 
     elif operator == "Deposit behavior":
-        df = get_deposit(spark)\
-            .join(to_exclude, on="User_ID", how="left_anti")\
-            .groupBy("User_ID").agg(
-                count("top_up_id").alias("attempt_transaction"),
-                sum(when(col("top_up_state")=='Success', col("top_up_amount"))).alias("success_amount")
-            )
-    
+        df = deposit
+            
     elif operator == "Wallet balance":
-        depo = get_deposit(spark)\
-            .groupBy("User_ID").agg(
-                sum(when(col("top_up_state")=='Success', col("top_up_amount"))).alias("success_amount")
-            ).filter(col("success_amount")>0)
+        depo = deposit.filter(col("success_amount")>0)
         withdraw_query = """ 
             select User_ID, withdrawal_amount 
             FROM dbo.fact_withdraw
@@ -272,12 +228,8 @@ def extract_data(spark, operator, filters=None, segment=None):
         withdraw = run_select_query(spark, withdraw_query)\
             .groupBy("User_ID").agg(sum("withdrawal_amount").alias("withdraw"))\
             .filter(col("withdraw")>0)
-        prize_query = """
-            select User_ID, Lottery, Turnover, Prize
-            FROM dbo.fact_orders     
-            """
-        prize = run_select_query(spark, prize_query)\
-            .groupBy("User_ID")\
+
+        prize = orders.groupBy("User_ID")\
             .agg(
                 sum("Turnover").alias("Turnover"),
                 sum(when(col("Lottery")=="Instant", col("Prize")).otherwise(0)).alias("Instant_prize"),
@@ -293,7 +245,6 @@ def extract_data(spark, operator, filters=None, segment=None):
         df = depo.join(prize, on="User_ID", how="left")\
                 .join(withdraw, on="User_ID", how="left")\
                 .join(refund, on="User_ID", how="left")\
-                .join(to_exclude, on="User_ID", how="left_anti")\
                 .fillna(0, subset=["Turnover", "refund", "withdraw", "Instant_prize", "Draw_prize"])\
                 .withColumn("balance",
                     col("success_amount") -
@@ -306,10 +257,6 @@ def extract_data(spark, operator, filters=None, segment=None):
                 .select("User_ID", "balance")
         
     elif operator == "Users must exclude":
-        df = to_exclude            
-    
-    else:
-        df = run_select_query(spark, query)\
-            .join(to_exclude, on="User_ID", how="left_anti")
+        df = to_exclude 
     
     return df
