@@ -6,29 +6,33 @@ import streamlit as st
 import pyodbc
 
 load_dotenv()
-db_password = os.environ.get("Azure_DB_pass")
+# db_password = os.environ.get("Azure_DB_pass")
 database= os.environ.get("DATABASE")
-user= os.environ.get("USER")
+# user= os.environ.get("USER")
 
-if db_password is None:
-    db_password = input("Please enter database password: ")
-
-jdbc_url = (
-    "jdbc:sqlserver://sql-nlbi-prd-uaen-01.database.windows.net:1433;database={};" 
-    "user={}@sql-nlbi-prd-uaen-01;password={};" 
-    "encrypt=true;trustServerCertificate=true;" 
-    "hostNameInCertificate=*.database.windows.net;loginTimeout=30;"
-).format(database, user, db_password)
+# if db_password is None:
+#     db_password = input("Please enter database password: ")
 
 driver = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 
-conn_str = (
-           " Driver={ODBC Driver 17 for SQL Server};"
-           "Server=tcp:sql-nlbi-prd-uaen-01.database.windows.net,1433;"
-           f"Database={database};Uid={user};"
-           f"Pwd={db_password};Encrypt=yes;"
-           "TrustServerCertificate=no;Connection Timeout=30;"
-        )
+def get_jdbc(user, db_password):
+    jdbc_url = (
+        "jdbc:sqlserver://sql-nlbi-prd-uaen-01.database.windows.net:1433;database={};" 
+        "user={}@sql-nlbi-prd-uaen-01;password={};" 
+        "encrypt=true;trustServerCertificate=true;" 
+        "hostNameInCertificate=*.database.windows.net;loginTimeout=30;"
+    ).format(database, user, db_password)
+    return jdbc_url
+
+def get_conn(user, db_password):
+    conn_str = (
+            " Driver={ODBC Driver 17 for SQL Server};"
+            "Server=tcp:sql-nlbi-prd-uaen-01.database.windows.net,1433;"
+            f"Database={database};Uid={user};"
+            f"Pwd={db_password};Encrypt=yes;"
+            "TrustServerCertificate=no;Connection Timeout=30;"
+            )
+    return conn_str
 
 def read_csv_spark(spark, uploaded_file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
@@ -42,7 +46,7 @@ def read_csv_spark(spark, uploaded_file):
 
     return df
 
-def run_query(query):
+def run_query(query, conn_str):
     try:
         conn = pyodbc.connect(conn_str)
         cursor = conn.cursor()
@@ -54,40 +58,7 @@ def run_query(query):
     except Exception as e:
         st.error(f"❌ Failed to run {query}:\n{e}")
 
-def update_dim_user(df, table, query):
-    run_query(f"TRUNCATE TABLE {table}")
-    df.write.format("jdbc") \
-        .option("url", jdbc_url) \
-        .option("dbtable", table) \
-        .option("driver", driver) \
-        .mode("append") \
-        .save()
-    run_query(query)
-    # st.success(f"✅ {table} data is updated")
-
-def query_data(spark, user_ids_df, start_date, end_date):
-    # This function check activity of users after receiving marketing message
-    df = get_order(spark).filter(
-        (col("Creation_date") >= lit(start_date)) &
-        (col("Creation_date") <= lit(end_date))
-    )
-    result = df.join(user_ids_df, on="User_ID", how="inner")
-    return result
-
-def query_history(spark, user_ids_df, start_date):
-    # This function check activity of users before receiving MKT messages
-    df = get_order(spark).filter(col("Creation_date") < lit(start_date)) \
-        .groupBy("User_ID") \
-        .agg(
-            datediff(to_date(lit(start_date)), max("DateID")).alias("inactive_days")
-        )
-
-    result = df.join(user_ids_df, on="User_ID", how="inner") \
-        .withColumn("inactive_month", concat(ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
-
-    return result
-
-def run_select_query(spark, query):
+def run_select_query(spark, query, jdbc_url):
     df = spark.read.format("jdbc") \
             .option("url", jdbc_url) \
             .option("query", query) \
@@ -95,42 +66,75 @@ def run_select_query(spark, query):
             .load()
     return df
 
-def get_series(spark):
-    return run_select_query(spark, """select SeriesNo as Series_No, 
-                        GameType, GameName, Unit_Price from dbo.dim_series""")
+def update_dim_user(df, table, query, conn_str, jdbc_url):
+    run_query(f"TRUNCATE TABLE {table}", conn_str)
+    df.write.format("jdbc") \
+        .option("url", jdbc_url) \
+        .option("dbtable", table) \
+        .option("driver", driver) \
+        .mode("append") \
+        .save()
+    run_query(query, conn_str)
+    # st.success(f"✅ {table} data is updated")
 
-def get_order(spark):
+def query_data(spark, user_ids_df, start_date, end_date, jdbc_url):
+    # This function check activity of users after receiving marketing message
+    df = get_order(spark,jdbc_url).filter(
+        (col("Creation_date") >= lit(start_date)) &
+        (col("Creation_date") <= lit(end_date))
+    )
+    result = df.join(user_ids_df, on="User_ID", how="inner")
+    return result
+
+def query_history(spark, user_ids_df, start_date, jdbc_url):
+    # This function check activity of users before receiving MKT messages
+    df = get_order(spark, jdbc_url).filter(col("Creation_date") < lit(start_date)) \
+        .groupBy("User_ID") \
+        .agg(
+            datediff(to_date(lit(start_date)), max("DateID")).alias("inactive_days")
+        )
+
+    result = df.join(user_ids_df, on="User_ID", how="inner") \
+        .withColumn("inactive_month", when(
+            col("inactive_days")==0, lit("1 month")
+            ).otherwise(concat(ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
+        )
+
+    return result
+
+def get_series(spark, jdbc_url):
+    return run_select_query(spark, """select SeriesNo as Series_No, 
+                        GameType, GameName, Unit_Price from dbo.dim_series""", jdbc_url)
+
+def get_order(spark, jdbc_url):
     query = """select DateID, Series_No, User_ID, Lottery, Order_ID, Creation_date, 
                 Entries, Turnover, Prize, Draw_Period
                 from dbo.fact_orders
             """
-    df = run_select_query(spark, query)
+    df = run_select_query(spark, query, jdbc_url)
     return df
 
-def get_deposit(spark):
+def get_deposit(spark, jdbc_url):
     query = """select top_up_id, user_id as User_ID, top_up_state, top_up_amount
                 FROM dbo.fact_deposit
                 """
-    df = run_select_query(spark, query)
+    df = run_select_query(spark, query, jdbc_url)
     return df
 
-def extract_data(spark, operator, filters=None, segment=None):       
+def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):       
     user_query = """ 
             select User_ID, verification_status, nationality, attempt_depo, FTD, FTP,
             RG_limit, receive_mail, receive_message, receive_sms, user_status
             from dbo.dim_user_authentication
+            where registerTime is not null
         """
-    users = run_select_query(spark, user_query)
-    to_exclude = users.filter(
-        (col("RG_limit")==1) | (col("receive_mail")==0) |
-        (col("receive_message")==0) | (col("receive_sms")==0) |
-        (col("user_status") != "Normal")
-    ).select("User_ID", "RG_limit", "receive_mail", "receive_message", "receive_sms", "user_status")
+    users = run_select_query(spark, user_query, jdbc_url)
+    to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)
     users = users.join(to_exclude, on="User_ID", how="left_anti")
 
-    dim_series = get_series(spark)
-    orders = get_order(spark).join(to_exclude,  on="User_ID", how="left_anti")
-    deposit = get_deposit(spark).join(to_exclude, on="User_ID", how="left_anti")\
+    dim_series = get_series(spark, jdbc_url)
+    orders = get_order(spark, jdbc_url).join(to_exclude,  on="User_ID", how="left_anti")
+    deposit = get_deposit(spark, jdbc_url).join(to_exclude, on="User_ID", how="left_anti")\
         .groupBy("User_ID").agg(
                 count("top_up_id").alias("attempt_transaction"),
                 sum(when(col("top_up_state")=='Success', col("top_up_amount"))).alias("success_amount")
@@ -145,11 +149,10 @@ def extract_data(spark, operator, filters=None, segment=None):
     elif operator == "All users":
         df = users.select("User_ID", "verification_status", "nationality")
 
-    elif operator == "No attempt deposit":
-        df = users.filter(col("attempt_depo").isNull()).select("User_ID", "verification_status")
-
-    elif operator == "No success deposit":
-        df = users.filter(col("FTD").isNull()).select("User_ID", "attempt_depo")
+    elif operator == "eKYC no deposit":
+        df = users.filter(
+            (col("FTD").isNull()) & (col("verification_status")=='Verified')
+            ).select("User_ID", "verification_status", "attempt_depo")
 
     elif operator == "No order":
         df = users.filter(col("FTP").isNull()).select("User_ID", "verification_status", "attempt_depo", "FTD")     
@@ -211,7 +214,7 @@ def extract_data(spark, operator, filters=None, segment=None):
 
 
     elif operator == "RFM Segments":
-        df = run_select_query(spark, "select User_ID, Segment from dbo.rfm_score")\
+        df = run_select_query(spark, "select User_ID, Segment from dbo.rfm_score", jdbc_url)\
             .join(to_exclude, on="User_ID", how="left_anti")\
             .filter(col("Segment")==segment)
 
@@ -225,7 +228,7 @@ def extract_data(spark, operator, filters=None, segment=None):
             select User_ID, withdrawal_amount 
             FROM dbo.fact_withdraw
             WHERE withdrawal_status = 'Success'"""
-        withdraw = run_select_query(spark, withdraw_query)\
+        withdraw = run_select_query(spark, withdraw_query, jdbc_url)\
             .groupBy("User_ID").agg(sum("withdrawal_amount").alias("withdraw"))\
             .filter(col("withdraw")>0)
 
@@ -241,7 +244,7 @@ def extract_data(spark, operator, filters=None, segment=None):
             where Memo = 'Success'
             group by User_ID
             """
-        refund = run_select_query(spark, refund_query)
+        refund = run_select_query(spark, refund_query, jdbc_url)
         df = depo.join(prize, on="User_ID", how="left")\
                 .join(withdraw, on="User_ID", how="left")\
                 .join(refund, on="User_ID", how="left")\

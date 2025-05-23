@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     unixodbc \
     unixodbc-dev \
     libpq-dev \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Set working directory
