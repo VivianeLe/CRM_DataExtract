@@ -83,10 +83,10 @@ def run_data_extract(spark, jdbc_url):
             data = extract_data(spark, operator, filters, segment, jdbc_url)
             st.write("Extracting ", data.count(), " users...")
             file_name = f"{operator.replace(' ', '_')}.csv"
-            output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-            csv_data = data.toPandas().to_csv(output_path, index=False)
+            # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+            # data.toPandas().to_csv(output_path, index=False)
 
-            # save_csv_file(data, file_name)
+            save_csv_file(data, file_name)
             
             st.success("✅ **Data successfully extracted, now you can download it.**\n \n "
                     "RG limit, opted out, suspend, close, locked, restricted accounts are already excluded."
@@ -104,6 +104,6 @@ def run_data_extract(spark, jdbc_url):
 
         file_name = "Must_exclude_users.csv"
         # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-        # csv_data = data.toPandas().to_csv(output_path, index=False)
+        # data.toPandas().to_csv(output_path, index=False)
         save_csv_file(data, file_name)
         st.success("✅ Data successfully extracted, now you can download it.")

@@ -17,7 +17,8 @@ def run_login(spark):
             test_query = get_series(spark, jdbc_url)
             return True, jdbc_url, conn_str
         except Exception as e:
-            st.error("❌ Can not log in", e)
+            st.error("❌ Can not log in")
+            st.error(e)
             return False, None, None
 
     # --- Login page

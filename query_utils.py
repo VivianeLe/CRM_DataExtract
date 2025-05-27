@@ -6,12 +6,7 @@ import streamlit as st
 import pyodbc
 
 load_dotenv()
-# db_password = os.environ.get("Azure_DB_pass")
 database= os.environ.get("DATABASE")
-# user= os.environ.get("USER")
-
-# if db_password is None:
-#     db_password = input("Please enter database password: ")
 
 driver = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 
