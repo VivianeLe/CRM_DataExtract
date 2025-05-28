@@ -73,7 +73,7 @@ def run_activity_check(spark, jdbc_url):
                 
                 by_ticket_segment = by_user.withColumn("ticket_segment",
                             when(
-                                col("Ticket_sold")==1, lit(1)
+                                col("Ticket_sold")==1, lit("1")
                             ).when(
                                 col("Ticket_sold")<=5, lit("<=5")
                             ).when(

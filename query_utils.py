@@ -203,7 +203,7 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         df = df.groupBy(*group_cols).agg(*agg_exprs)
         df = df.orderBy(col(filters["by_field"]).desc())\
             .limit(filters["top"])\
-            .withColumn("Draw_period", lit(filters["draw_period"]))\
+            .withColumn("Draw_period", lit(", ".join(map(str, filters["draw_period"]))))\
             .withColumn("GameType", lit(filters["by_product"]))\
             .withColumn("Unit_Price", lit(filters["ticket_price"]))
 

@@ -44,7 +44,7 @@ def run_data_extract(spark, jdbc_url):
         ticket_price = None
         if by_product == "Instant":
             ticket_price = get_series(spark, jdbc_url)\
-                .select("GameType, Unit_Price")\
+                .select("GameType","Unit_Price")\
                 .filter(col("GameType")=='Instant')\
                 .select("Unit_Price").distinct().collect()
             ticket_price = [row["Unit_Price"] for row in ticket_price]
