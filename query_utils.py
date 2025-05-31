@@ -118,8 +118,7 @@ def get_deposit(spark, jdbc_url):
 
 def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):       
     user_query = """ 
-            select User_ID, verification_status, nationality, attempt_depo, FTD, FTP,
-            RG_limit, receive_mail, receive_message, receive_sms, user_status
+            select User_ID, verification_status, nationality, attempt_depo, FTD, FTP
             from dbo.dim_user_authentication
             where registerTime is not null
         """
@@ -128,7 +127,7 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
     users = users.join(to_exclude, on="User_ID", how="left_anti")
 
     dim_series = get_series(spark, jdbc_url)
-    orders = get_order(spark, jdbc_url).join(to_exclude,  on="User_ID", how="left_anti")
+    orders = get_order(spark, jdbc_url).join(to_exclude, on="User_ID", how="left_anti")
     deposit = get_deposit(spark, jdbc_url).join(to_exclude, on="User_ID", how="left_anti")\
         .groupBy("User_ID").agg(
                 count("top_up_id").alias("attempt_transaction"),
@@ -153,20 +152,28 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         df = users.filter(col("FTP").isNull()).select("User_ID", "verification_status", "attempt_depo", "FTD")     
     
     elif operator == "Order behavior":
-        df = orders\
+        df = orders.groupBy("User_ID")\
+            .agg(
+                datediff(current_date(), max("DateID")).alias("inactive_days"),
+                count("Order_ID").alias("Orders"),
+                sum("Entries").alias("Tickets"),
+                sum("Turnover").alias("Turnover"),
+                sum("Prize").alias("Prize"),
+                collect_set("Lottery").alias("Product_bought")
+            ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
+            .orderBy(col("Turnover").desc())
+    
+    elif operator == "Lucky Day behavior":
+        df = orders.filter(col("Lottery")=='Lucky Day')\
             .groupBy("User_ID")\
-            .agg(min("DateID").alias("First_order_date"),
-                 max("DateID").alias("Last_order_date"),
-                 datediff(current_date(), max("DateID")).alias("inactive_days"),
-                 count_distinct(when(col("Lottery")=="Lucky Day", col("Draw_Period"))).alias("distinct_series_bought"),
-                 max(when(col("Lottery")=="Lucky Day", col("Draw_Period"))).alias("Last_draw_series"),
-                 collect_set("Lottery").alias("Product_bought"),
-                 count("Order_ID").alias("Orders"),
-                 sum("Entries").alias("Tickets"),
-                 sum("Turnover").alias("Turnover"),
-                 sum("Prize").alias("Prize"),
-                 (sum("Turnover") - sum("Prize")).alias("GGR")
-                 ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))
+            .agg(
+                datediff(current_date(), max("DateID")).alias("inactive_days"),
+                count_distinct("Series_No").alias("distinct_draw_bought"),
+                max("Draw_Period").alias("Last_draw_bought"),
+                sum("Entries").alias("Tickets"),
+                sum("Turnover").alias("Turnover"),
+                sum("Prize").alias("Prize")
+            ).orderBy(col("Turnover").desc())
     
     elif operator in ["Only Instant", "Only Lucky Day"]:
         target_type = "Instant" if operator == "Only Instant" else "Lucky Day"

@@ -85,16 +85,17 @@ def save_csv_file(data, file_name):
     output_file = f"/tmp/{file_name}.csv"
     data.write.mode("overwrite").option("header", True).csv(output_dir)
 
-    # combine into 1 file
     part_files = sorted(glob.glob(f"{output_dir}/part-*.csv"))
+
     with open(output_file, "w", encoding="utf-8") as f_out:
         for i, part_file in enumerate(part_files):
             with open(part_file, "r", encoding="utf-8") as f_in:
                 lines = f_in.readlines()
+                lines = [line for line in lines if line.strip() and not line.strip().startswith(",")]
                 if i == 0:
                     f_out.writelines(lines)
                 else:
-                    f_out.writelines(lines[1:])
+                    f_out.writelines(lines[1:])  # bỏ header
 
     with open(output_file, "rb") as f:
         st.download_button(

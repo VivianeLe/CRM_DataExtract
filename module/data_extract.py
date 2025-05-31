@@ -19,6 +19,7 @@ def run_data_extract(spark, jdbc_url):
                                        "eKYC no deposit",
                                        "No order",
                                        "Order behavior",
+                                       "Lucky Day behavior",
                                        "Only Instant",
                                        "Only Lucky Day",
                                        "Top N by Draw series",
