@@ -137,21 +137,8 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
             )
     
     # Get query based on operator selected
-    if operator == "No eKYC (or fail)":
-        df = users.filter((col("verification_status") != 'Verified') |
-                          (col("verification_status").isNull()))\
-                .select("User_ID", "verification_status")
-        
-    elif operator == "All users":
-        df = users.select("User_ID", "verification_status", "nationality")
-
-    elif operator == "eKYC no deposit":
-        df = users.filter(
-            (col("FTD").isNull()) & (col("verification_status")=='Verified')
-            ).select("User_ID", "verification_status", "attempt_depo")
-
-    elif operator == "No order":
-        df = users.filter(col("FTP").isNull()).select("User_ID", "verification_status", "attempt_depo", "FTD")     
+    if operator == "All users":
+        df = users    
     
     elif operator == "Order behavior":
         df = orders.groupBy("User_ID")\
@@ -203,15 +190,6 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
                 sum("Prize").alias("Prize")
             )
         df = df.orderBy(col("Turnover").desc())
-        
-    
-    # elif operator in ["Only Instant", "Only Lucky Day"]:
-    #     target_type = "Instant" if operator == "Only Instant" else "Lucky Day"
-    #     df = orders\
-    #         .groupBy("User_ID")\
-    #         .agg(collect_set("Lottery").alias("Product_bought"))\
-    #         .withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
-    #         .filter(col("Product_bought") == target_type)
             
     elif operator == "Top N by Draw series":
         df = orders\
@@ -237,7 +215,7 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
 
         else: # all periods
             if (filters["by_product"] == "Lucky Day") | (filters["ticket_price"] == 'All Instant games'):
-                agg_exprs.insert(0, count_distinct("Series_No").alias("distinct_series_bought"))
+                agg_exprs.insert(0, count_distinct("Game_series").alias("distinct_series_bought"))
 
         df = df.groupBy(*group_cols).agg(*agg_exprs)
         df = df.orderBy(col(filters["by_field"]).desc())\
