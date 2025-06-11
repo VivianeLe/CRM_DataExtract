@@ -165,25 +165,53 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
             ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
             .orderBy(col("Turnover").desc())
     
-    elif operator == "Lucky Day behavior":
-        df = orders.filter(col("Lottery")=='Lucky Day')\
-            .groupBy("User_ID")\
+    elif operator == "Filter by Lottery Type":
+        df = orders.filter(col("Lottery")==filters["by_product"])
+
+        if filters["by_product"] == "Lucky Day":
+            df = df.groupBy("User_ID", "Lottery")\
             .agg(
                 datediff(current_date(), max("DateID")).alias("inactive_days"),
-                count_distinct("Series_No").alias("distinct_draw_bought"),
-                max("Draw_Period").alias("Last_draw_bought"),
+                count_distinct("Series_No").alias("distinct_series_bought"),
+                max("Draw_Period").alias("Last_active_period"),
                 sum("Entries").alias("Tickets"),
                 sum("Turnover").alias("Turnover"),
                 sum("Prize").alias("Prize")
-            ).orderBy(col("Turnover").desc())
+            )
+        
+        if filters["by_product"] == "Pick 3":
+            df = df.groupBy("User_ID", "Lottery")\
+            .agg(
+                datediff(current_date(), max("DateID")).alias("inactive_days"),
+                count_distinct("Series_No").alias("distinct_series_bought"),
+                max("Series_No").alias("Last_series_bought"),
+                max("Draw_Period").alias("Last_active_period"),
+                sum("Entries").alias("Tickets"),
+                sum("Turnover").alias("Turnover"),
+                sum("Prize").alias("Prize")
+            )
+        
+        else:
+            df = df.withColumn("Game_series", col("GameID")*1000000+col("Series_No"))\
+            .groupBy("User_ID", "Lottery")\
+            .agg(
+                datediff(current_date(), max("DateID")).alias("inactive_days"),
+                count_distinct("Game_series").alias("distinct_games_bought"),
+                max("Draw_Period").alias("Last_active_period"),
+                sum("Entries").alias("Tickets"),
+                sum("Turnover").alias("Turnover"),
+                sum("Prize").alias("Prize")
+            )
+        df = df.orderBy(col("Turnover").desc())
+        
     
-    elif operator in ["Only Instant", "Only Lucky Day"]:
-        target_type = "Instant" if operator == "Only Instant" else "Lucky Day"
-        df = orders\
-            .groupBy("User_ID")\
-            .agg(collect_set("Lottery").alias("Product_bought"))\
-            .withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
-            .filter(col("Product_bought") == target_type)
+    # elif operator in ["Only Instant", "Only Lucky Day"]:
+    #     target_type = "Instant" if operator == "Only Instant" else "Lucky Day"
+    #     df = orders\
+    #         .groupBy("User_ID")\
+    #         .agg(collect_set("Lottery").alias("Product_bought"))\
+    #         .withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
+    #         .filter(col("Product_bought") == target_type)
             
     elif operator == "Top N by Draw series":
         df = orders\
@@ -216,7 +244,9 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
             .limit(filters["top"])\
             .withColumn("Draw_period", lit(", ".join(map(str, filters["draw_period"]))))\
             .withColumn("Lottery", lit(filters["by_product"]))\
-            .withColumn("Unit_Price", lit(filters["ticket_price"]))
+        
+        if filters["by_product"] == "Instant":
+            df = df.withColumn("Unit_Price", lit(filters["ticket_price"]))
 
 
     elif operator == "RFM Segments":

@@ -19,9 +19,7 @@ def run_data_extract(spark, jdbc_url):
                                        "eKYC no deposit",
                                        "No order",
                                        "Order behavior",
-                                       "Lucky Day behavior",
-                                       "Only Instant",
-                                       "Only Lucky Day",
+                                       "Filter by Lottery Type",
                                        "Top N by Draw series",
                                        "Deposit behavior",
                                        "Wallet balance"
@@ -36,6 +34,15 @@ def run_data_extract(spark, jdbc_url):
             .select("Segment").distinct().collect()
         dim_segments = [row["Segment"] for row in dim_segments]
         segment = st.selectbox("Segments: ", dim_segments)
+    
+    elif operator == "Filter by Lottery Type":
+        by_product = st.selectbox("By Game Type", [
+            "Lucky Day",
+            "Instant",
+            "Pick 3",
+            "Merchant App"
+        ])
+        filters = {"by_product": by_product}
 
     elif operator == "Top N by Draw series":
         by_product = st.selectbox("By Game Type", [
@@ -88,11 +95,11 @@ def run_data_extract(spark, jdbc_url):
             file_name = f"{operator.replace(' ', '_')}.csv"
 
             # To use in local machine
-            output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-            data.toPandas().to_csv(output_path, index=False)
+            # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+            # data.toPandas().to_csv(output_path, index=False)
 
             # For docker run
-            # save_csv_file(data, file_name)
+            save_csv_file(data, file_name)
             
             st.success("✅ **Data successfully extracted, now you can download it.**\n \n "
                     "RG limit, opted out, suspend, close, locked, restricted accounts are already excluded."
