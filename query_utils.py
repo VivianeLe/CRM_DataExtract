@@ -92,18 +92,20 @@ def query_history(spark, user_ids_df, start_date, jdbc_url):
     result = df.join(user_ids_df, on="User_ID", how="inner") \
         .withColumn("inactive_month", when(
             col("inactive_days")==0, lit("1 month")
-            ).otherwise(concat(ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
+            ).otherwise(concat(lit("<="), ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
         )
 
     return result
 
 def get_series(spark, jdbc_url):
     return run_select_query(spark, """select SeriesNo as Series_No, 
-                        GameType, GameName, Unit_Price from dbo.dim_series""", jdbc_url)
+                        Lottery, GameName, Unit_Price, s.GameID, s.Game_series
+                            from dbo.dim_series s join dbo.dim_games g 
+                            on s.GameID = g.GameID""", jdbc_url)
 
 def get_order(spark, jdbc_url):
     query = """select DateID, Series_No, User_ID, Lottery, Order_ID, Creation_date, 
-                Entries, Turnover, Prize, Draw_Period
+                Entries, Turnover, Prize, Draw_Period, GameID
                 from dbo.fact_orders
             """
     df = run_select_query(spark, query, jdbc_url)
@@ -185,8 +187,10 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
             
     elif operator == "Top N by Draw series":
         df = orders\
-            .join(dim_series, on="Series_No", how="left")\
-            .filter(col("GameType")==filters["by_product"])\
+            .drop("Lottery")\
+            .withColumn("Game_series", col("GameID")*1000000+col("Series_No"))\
+            .join(dim_series, on="Game_series", how="left")\
+            .filter(col("Lottery")==filters["by_product"])\
         
         if filters["by_product"] == "Instant":
             if filters["ticket_price"] != 'All Instant games':
@@ -211,7 +215,7 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         df = df.orderBy(col(filters["by_field"]).desc())\
             .limit(filters["top"])\
             .withColumn("Draw_period", lit(", ".join(map(str, filters["draw_period"]))))\
-            .withColumn("GameType", lit(filters["by_product"]))\
+            .withColumn("Lottery", lit(filters["by_product"]))\
             .withColumn("Unit_Price", lit(filters["ticket_price"]))
 
 

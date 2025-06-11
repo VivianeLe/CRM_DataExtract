@@ -8,31 +8,31 @@ os.environ["hadoop.home.dir"] = "C:\\hadoop"
 
 @st.cache_resource
 def init_spark():
-    spark = SparkSession.builder \
-        .appName("CRM Data Extract") \
-        .master(f"local[{os.cpu_count()}]") \
-        .config("spark.jars", "/app/jars/mssql-jdbc-12.10.0.jre11.jar,/app/jars/msal4j-1.13.8.jar,/app/jars/slf4j-api-1.7.36.jar") \
-        .config("spark.driver.memory", "12g") \
-        .config("spark.executor.memory", "12g") \
-        .config("spark.sql.shuffle.partitions", "28") \
-        .config("spark.default.parallelism", "28") \
-        .config("spark.local.dir", "/tmp/spark-temp") \
-        .getOrCreate()
-
     # spark = SparkSession.builder \
     #     .appName("CRM Data Extract") \
     #     .master(f"local[{os.cpu_count()}]") \
-    #     .config("spark.jars.packages", ",".join([
-    #         "com.microsoft.sqlserver:mssql-jdbc:12.2.0.jre11",
-    #         "com.microsoft.azure:msal4j:1.13.8",
-    #         "org.slf4j:slf4j-api:1.7.36"
-    #     ])) \
+    #     .config("spark.jars", "/app/jars/mssql-jdbc-12.10.0.jre11.jar,/app/jars/msal4j-1.13.8.jar,/app/jars/slf4j-api-1.7.36.jar") \
     #     .config("spark.driver.memory", "12g") \
     #     .config("spark.executor.memory", "12g") \
     #     .config("spark.sql.shuffle.partitions", "28") \
     #     .config("spark.default.parallelism", "28") \
-    #     .config("spark.local.dir", "C:/spark-temp") \
+    #     .config("spark.local.dir", "/tmp/spark-temp") \
     #     .getOrCreate()
+
+    spark = SparkSession.builder \
+        .appName("CRM Data Extract") \
+        .master(f"local[{os.cpu_count()}]") \
+        .config("spark.jars.packages", ",".join([
+            "com.microsoft.sqlserver:mssql-jdbc:12.2.0.jre11",
+            "com.microsoft.azure:msal4j:1.13.8",
+            "org.slf4j:slf4j-api:1.7.36"
+        ])) \
+        .config("spark.driver.memory", "12g") \
+        .config("spark.executor.memory", "12g") \
+        .config("spark.sql.shuffle.partitions", "28") \
+        .config("spark.default.parallelism", "28") \
+        .config("spark.local.dir", "C:/spark-temp") \
+        .getOrCreate()
     return spark
 
 def markdown():

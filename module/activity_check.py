@@ -60,7 +60,7 @@ def run_activity_check(spark, jdbc_url):
                 turnover = result.groupBy().agg(sum("Turnover")).collect()[0][0]
                 progress_bar.progress(80, text="Summarizing data ✅")
 
-                by_gameType = result.groupBy("Lottery").agg(
+                by_Lottery = result.groupBy("Lottery").agg(
                     sum("Entries").alias("Ticket sold"),
                     sum("Turnover").alias("Turnover")
                 ).toPandas()
@@ -126,7 +126,7 @@ def run_activity_check(spark, jdbc_url):
                 # st.table(result.toPandas().describe())
 
                 st.subheader("🎯 Ticket sold & Turnover by Game Type")
-                st.dataframe(by_gameType, use_container_width=True)
+                st.dataframe(by_Lottery, use_container_width=True)
 
                 st.subheader("🎯 Players by ticket sold")
                 st.dataframe(by_ticket_segment, use_container_width=True)

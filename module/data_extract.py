@@ -40,13 +40,15 @@ def run_data_extract(spark, jdbc_url):
     elif operator == "Top N by Draw series":
         by_product = st.selectbox("By Game Type", [
             "Lucky Day",
-            "Instant"
+            "Instant",
+            "Pick 3",
+            "Merchant App"
         ])
         ticket_price = None
         if by_product == "Instant":
             ticket_price = get_series(spark, jdbc_url)\
-                .select("GameType","Unit_Price")\
-                .filter(col("GameType")=='Instant')\
+                .select("Lottery","Unit_Price")\
+                .filter(col("Lottery")=='Instant')\
                 .select("Unit_Price").distinct().collect()
             ticket_price = [row["Unit_Price"] for row in ticket_price]
             ticket_price.insert(0, "All Instant games")
@@ -84,10 +86,13 @@ def run_data_extract(spark, jdbc_url):
             data = extract_data(spark, operator, filters, segment, jdbc_url)
             st.write("Extracting ", data.count(), " users...")
             file_name = f"{operator.replace(' ', '_')}.csv"
-            # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-            # data.toPandas().to_csv(output_path, index=False)
 
-            save_csv_file(data, file_name)
+            # To use in local machine
+            output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+            data.toPandas().to_csv(output_path, index=False)
+
+            # For docker run
+            # save_csv_file(data, file_name)
             
             st.success("✅ **Data successfully extracted, now you can download it.**\n \n "
                     "RG limit, opted out, suspend, close, locked, restricted accounts are already excluded."
