@@ -241,7 +241,8 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         withdraw_query = """ 
             select User_ID, withdrawal_amount 
             FROM dbo.fact_withdraw
-            WHERE withdrawal_status = 'Success'"""
+            WHERE withdrawal_status not in ('Bank reverted', 'Failure') 
+            """
         withdraw = run_select_query(spark, withdraw_query, jdbc_url)\
             .groupBy("User_ID").agg(sum("withdrawal_amount").alias("withdraw"))\
             .filter(col("withdraw")>0)
@@ -249,7 +250,7 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         prize = orders.groupBy("User_ID")\
             .agg(
                 sum("Turnover").alias("Turnover"),
-                sum(when(col("Lottery")=="Instant", col("Prize")).otherwise(0)).alias("Instant_prize"),
+                sum(when(col("Lottery")!="Lucky Day", col("Prize")).otherwise(0)).alias("Other_prize"),
                 sum(when((col("Lottery")=="Lucky Day") & (col("Prize")<100000), col("Prize")).otherwise(0)).alias("Draw_prize")
             )
         refund_query = """
@@ -262,16 +263,15 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         df = depo.join(prize, on="User_ID", how="left")\
                 .join(withdraw, on="User_ID", how="left")\
                 .join(refund, on="User_ID", how="left")\
-                .fillna(0, subset=["Turnover", "refund", "withdraw", "Instant_prize", "Draw_prize"])\
+                .fillna(0, subset=["Turnover", "refund", "withdraw", "Other_prize", "Draw_prize"])\
                 .withColumn("balance",
                     col("success_amount") -
                     coalesce(col("Turnover"), lit(0)) -
                     coalesce(col("refund"), lit(0)) -
                     coalesce(col("withdraw"), lit(0)) +
-                    coalesce(col("Instant_prize"), lit(0)) +
+                    coalesce(col("Other_prize"), lit(0)) +
                     coalesce(col("Draw_prize"), lit(0))
-                ).filter(col("balance")>0)\
-                .select("User_ID", "balance")
+                ).select("User_ID", "balance")
         
     elif operator == "Users must exclude":
         df = to_exclude 
