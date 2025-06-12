@@ -271,7 +271,8 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
                     coalesce(col("withdraw"), lit(0)) +
                     coalesce(col("Other_prize"), lit(0)) +
                     coalesce(col("Draw_prize"), lit(0))
-                ).select("User_ID", "balance")
+                ).select("User_ID", "balance")\
+                .filter(col("balance")>0)
         
     elif operator == "Users must exclude":
         df = to_exclude 
