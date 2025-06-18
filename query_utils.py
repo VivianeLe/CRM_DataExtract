@@ -7,16 +7,19 @@ import pyodbc
 
 load_dotenv()
 database= os.environ.get("DATABASE")
+server_name = os.environ.get("SERVER")
 
 driver = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 
 def get_jdbc(user, db_password):
     jdbc_url = (
-        "jdbc:sqlserver://sql-nlbi-prd-uaen-01.database.windows.net:1433;database={};" 
-        "user={}@sql-nlbi-prd-uaen-01;password={};" 
+        "jdbc:sqlserver://{}.database.windows.net:1433;"
+        "database={};" 
+        "user={}@{};"
+        "password={};" 
         "encrypt=true;trustServerCertificate=true;" 
         "hostNameInCertificate=*.database.windows.net;loginTimeout=30;"
-    ).format(database, user, db_password)
+    ).format(server_name, database, user, server_name, db_password)
     return jdbc_url
 
 def get_conn(user, db_password):
