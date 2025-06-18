@@ -37,8 +37,11 @@ def run_update_user_status(spark, conn_str, jdbc_url):
                 FROM dbo.dim_user_authentication AS auth
                 INNER JOIN stg.rg_limit AS rg ON auth.User_ID = rg.User_ID;
                 """
-                update_dim_user(rg_df, "stg.rg_limit", update_sql, conn_str, jdbc_url)
-                st.success("✅ RG limit successfully updated")
+                try:
+                    update_dim_user(rg_df, "stg.rg_limit", update_sql, conn_str, jdbc_url)
+                    st.success("✅ RG limit successfully updated")
+                except Exception as e:
+                    st.error("Error while updating: ", e)
 
                 # ===================== OPTED OUT =====================
                 opt_df = read_csv_spark(spark, optout_file)\
@@ -56,8 +59,11 @@ def run_update_user_status(spark, conn_str, jdbc_url):
                 FROM dbo.dim_user_authentication AS auth
                 INNER JOIN stg.opt_out AS new ON auth.User_ID = new.User_ID;
                 """
-                update_dim_user(opt_df, "stg.opt_out", update_sql, conn_str, jdbc_url)
-                st.success("✅ Opted out successfully updated")
+                try:
+                    update_dim_user(opt_df, "stg.opt_out", update_sql, conn_str, jdbc_url)
+                    st.success("✅ Opted out successfully updated")
+                except Exception as e:
+                    st.error("Error while updating: ", e)
 
                 # ===================== USER STATUS =====================
                 status_df = read_csv_spark(spark, status_file)\
@@ -72,7 +78,10 @@ def run_update_user_status(spark, conn_str, jdbc_url):
                 FROM dbo.dim_user_authentication AS auth
                 INNER JOIN stg.user_status AS new ON auth.User_ID = new.User_ID;
                 """
-                update_dim_user(status_df, "stg.user_status", update_sql,conn_str, jdbc_url)
-                st.success("✅ User status successfully updated")
+                try:
+                    update_dim_user(status_df, "stg.user_status", update_sql,conn_str, jdbc_url)
+                    st.success("✅ User status successfully updated")
+                except Exception as e:
+                    st.error("Error while updating: ", e)
             except Exception as e:
                 st.error(f"❌ Update failed: {e}")

@@ -65,7 +65,7 @@ def run_select_query(spark, query, jdbc_url):
     return df
 
 def update_dim_user(df, table, query, conn_str, jdbc_url):
-    run_query(f"TRUNCATE TABLE {table}", conn_str)
+    run_query(f"DELETE FROM {table} WHERE User_ID is not null", conn_str)
     df.write.format("jdbc") \
         .option("url", jdbc_url) \
         .option("dbtable", table) \

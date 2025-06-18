@@ -2,12 +2,19 @@ FROM openjdk:17-slim
 
 # --- Install only essential system dependencies
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
+    curl \
+    gnupg \
     unixodbc \
     unixodbc-dev \
+    python3 \
+    python3-pip \
     gcc \
-    curl \
+    g++ \
+    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && curl https://packages.microsoft.com/config/debian/10/prod.list > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y msodbcsql17 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Set working directory
