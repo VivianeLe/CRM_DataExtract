@@ -121,15 +121,15 @@ def get_deposit(spark, jdbc_url):
     df = run_select_query(spark, query, jdbc_url)
     return df
 
-def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):       
+def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None): 
+    to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)      
     user_query = """ 
             select User_ID, verification_status, nationality, attempt_depo, FTD, FTP
             from dbo.dim_user_authentication
             where registerTime is not null
         """
-    users = run_select_query(spark, user_query, jdbc_url)
-    to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)
-    users = users.join(to_exclude, on="User_ID", how="left_anti")
+    users = run_select_query(spark, user_query, jdbc_url)\
+        .join(to_exclude, on="User_ID", how="left_anti")
 
     dim_series = get_series(spark, jdbc_url)
     orders = get_order(spark, jdbc_url).join(to_exclude, on="User_ID", how="left_anti")
@@ -235,7 +235,6 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
             .join(to_exclude, on="User_ID", how="left_anti")\
             .filter(col("Segment")==segment)
 
-
     elif operator == "Deposit behavior":
         df = deposit
             
@@ -274,8 +273,22 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
                     coalesce(col("withdraw"), lit(0)) +
                     coalesce(col("Other_prize"), lit(0)) +
                     coalesce(col("Draw_prize"), lit(0))
-                ).select("User_ID", "balance")\
-                .filter(col("balance")>0)
+                )\
+                .withColumn("balance", when(col("balance")>0, col("balance")).otherwise(lit(0)))\
+                .withColumn("Withdrawable_amount", 
+                            coalesce(col("Other_prize"), lit(0))+
+                            coalesce(col("Draw_prize"), lit(0))-
+                            coalesce(col("withdraw"), lit(0))-
+                            coalesce(col("Turnover"), lit(0))
+                )\
+                .withColumn("Withdrawable_amount", when(col("Withdrawable_amount")>0, col("Withdrawable_amount")).otherwise(lit(0)))\
+                .withColumn("balance_group",
+                            when(col("balance")<=200, lit("<=200"))\
+                                .when(col("balance")<=1000, lit("<=1000"))\
+                                    .when(col("balance")<=5000, lit("<=5000"))\
+                                        .otherwise(lit(">5000"))
+                            )\
+                .select("User_ID", "balance", "Withdrawable_amount", "balance_group")\
         
     elif operator == "Users must exclude":
         df = to_exclude 
