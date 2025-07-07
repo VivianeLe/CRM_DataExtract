@@ -46,13 +46,10 @@ def read_csv_spark(spark, uploaded_file):
 
 def run_query(query, conn_str):
     try:
-        conn = pyodbc.connect(conn_str)
-        cursor = conn.cursor()
-        cursor.execute(query)
-        conn.commit()
-        cursor.close()
-        conn.close()
-
+        with pyodbc.connect(conn_str) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                conn.commit()
     except Exception as e:
         st.error(f"❌ Failed to run {query}:\n{e}")
 
@@ -142,6 +139,9 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
     # Get query based on operator selected
     if operator == "All users":
         df = users    
+
+    # no eKYC users 
+    
     
     elif operator == "Order behavior":
         df = orders.groupBy("User_ID")\

@@ -28,6 +28,7 @@ if st.session_state.logged_in:
 
     elif page == "Update user status":
         run_update_user_status(spark, conn_str, jdbc_url)
+        # conn_str.close()
 
     elif page == "Data extracting":
         run_data_extract(spark, jdbc_url)
@@ -36,8 +37,12 @@ if st.session_state.logged_in:
     if st.sidebar.button("❌ Close session"):
         spark.stop()
         st.cache_resource.clear()
+        # conn_str.close()
         st.success("🛑 Spark session closed and database connection terminated.")
     
     if st.sidebar.button("🚪 Logout"):
         st.session_state.logged_in = False
+        # conn_str.close()
+        spark.stop()
+        st.cache_resource.clear()
         st.rerun()

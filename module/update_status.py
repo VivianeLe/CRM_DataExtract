@@ -83,5 +83,7 @@ def run_update_user_status(spark, conn_str, jdbc_url):
                     st.success("✅ User status successfully updated")
                 except Exception as e:
                     st.error("Error while updating: ", e)
+                # conn_str.close()
             except Exception as e:
                 st.error(f"❌ Update failed: {e}")
+                # conn_str.close()
