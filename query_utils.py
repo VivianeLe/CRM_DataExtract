@@ -139,9 +139,6 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
     # Get query based on operator selected
     if operator == "All users":
         df = users    
-
-    # no eKYC users 
-    
     
     elif operator == "Order behavior":
         df = orders.groupBy("User_ID")\
@@ -215,16 +212,22 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         
         if filters["draw_period"]:
             df = df.filter(col("Draw_Period").isin(filters["draw_period"]))
+            group_cols.insert(0, "Draw_Period")
 
         else: # all periods
             if (filters["by_product"] == "Lucky Day") | (filters["ticket_price"] == 'All Instant games'):
                 agg_exprs.insert(0, count_distinct("Game_series").alias("distinct_series_bought"))
+        
+        from pyspark.sql.window import Window
+
+        window_spec = Window.partitionBy("Draw_Period").orderBy(col(filters["by_field"]).desc())
 
         df = df.groupBy(*group_cols).agg(*agg_exprs)
-        df = df.orderBy(col(filters["by_field"]).desc())\
-            .limit(filters["top"])\
-            .withColumn("Draw_period", lit(", ".join(map(str, filters["draw_period"]))))\
+        df = df.withColumn("Rank", rank().over(window_spec))\
+            .filter(col("Rank") <= filters["top"])\
             .withColumn("Lottery", lit(filters["by_product"]))\
+            # .withColumn("Draw_period", lit(", ".join(map(str, filters["draw_period"]))))\
+            
         
         if filters["by_product"] == "Instant":
             df = df.withColumn("Unit_Price", lit(filters["ticket_price"]))
