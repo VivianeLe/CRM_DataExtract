@@ -291,7 +291,20 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
                                     .when(col("balance")<=5000, lit("<=5000"))\
                                         .otherwise(lit(">5000"))
                             )\
-                .select("User_ID", "balance", "Withdrawable_amount", "balance_group")\
+                .select("User_ID", "balance", "Withdrawable_amount", "balance_group")
+        
+    elif operator == "Bank-declined users":
+        query = """ 
+                select distinct User_ID
+                from dbo.fact_deposit d 
+                join dbo.dim_fail_deposit_group f 
+                on d.gateway_memo = f.gateway_memo
+                where fail_group = 'Bank declined'
+            """
+        df = run_select_query(spark, query, jdbc_url)\
+            .join(to_exclude, on="User_ID", how="left_anti")\
+            .join(deposit, on="User_ID", how="left")
+        
         
     elif operator == "Users must exclude":
         df = to_exclude 

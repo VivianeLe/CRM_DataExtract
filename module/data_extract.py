@@ -19,7 +19,8 @@ def run_data_extract(spark, jdbc_url):
                                        "Filter by Lottery Type",
                                        "Top N by Draw series",
                                        "Deposit behavior",
-                                       "Wallet balance"
+                                       "Wallet balance",
+                                       "Bank-declined users"
                                        ])
 
     filters = {}
@@ -87,6 +88,7 @@ def run_data_extract(spark, jdbc_url):
 
     if st.button("🚀 Extract Data"):
         try: 
+            # Send operator and other details to extract_data function (in query utils)
             data = extract_data(spark, operator, filters, segment, jdbc_url)
             st.write("Extracting ", data.count(), " users...")
             file_name = f"{operator.replace(' ', '_')}.csv"
