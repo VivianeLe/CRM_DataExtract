@@ -39,7 +39,7 @@ def run_activity_check(spark, jdbc_url):
         else:
             progress_bar = st.progress(0, text="Starting...")
 
-            # Read User_ID file
+            # Read User_ID file (list to check)
             df_user = read_csv_spark(spark, uploaded_file)
             user_ids = df_user.select("User_ID").distinct()
 
@@ -48,6 +48,7 @@ def run_activity_check(spark, jdbc_url):
 
             # Query data from Azure SQL
             result = query_data(spark, user_ids, start_datetime, end_datetime, jdbc_url)
+            # get inactive day of Users in list to check
             inactive_day = query_history(spark, user_ids, start_datetime, jdbc_url)
             progress_bar.progress(50, text="Data queried ✅")
 

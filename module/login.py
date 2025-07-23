@@ -14,7 +14,7 @@ def run_login(spark):
         jdbc_url = get_jdbc(username, password)
         conn_str = get_conn(username, password)
         try:
-            test_query = get_series(spark, jdbc_url)
+            test_query = run_select_query(spark, "select top(1) * from dbo.dim_games", jdbc_url)
             return True, jdbc_url, conn_str
         except Exception as e:
             st.error("❌ Can not log in")

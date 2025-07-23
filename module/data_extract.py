@@ -34,13 +34,25 @@ def run_data_extract(spark, jdbc_url):
         segment = st.selectbox("Segments: ", dim_segments)
     
     elif operator == "Filter by Lottery Type":
-        by_product = st.selectbox("By Game Type", [
-            "Lucky Day",
-            "Instant",
-            "Pick 3",
-            "Merchant App"
+        switch = st.selectbox("Buy/Not buy", [
+            "Buy product",
+            "Not buy product"
         ])
-        filters = {"by_product": by_product}
+        if switch == "Buy product":
+            by_product = st.selectbox("All players who buy: ", [
+                "Lucky Day",
+                "Instant",
+                "Pick 3",
+                "Merchant App"
+            ])
+        else:
+            by_product = st.selectbox("All players who not buy: ", [
+                "Lucky Day",
+                "Instant",
+                "Pick 3",
+                "Merchant App"
+            ])
+        filters = {"buy_or_not": switch, "by_product": by_product}
 
     elif operator == "Top N by Draw series":
         by_product = st.selectbox("By Game Type", [
@@ -51,10 +63,9 @@ def run_data_extract(spark, jdbc_url):
         ])
         ticket_price = None
         if by_product == "Instant":
-            ticket_price = get_series(spark, jdbc_url)\
-                .select("Lottery","Unit_Price")\
-                .filter(col("Lottery")=='Instant')\
-                .select("Unit_Price").distinct().collect()
+            ticket_price = run_select_query(spark, 
+                                            "select distinct Unit_Price from dbo.dim_games where Lottery = 'Instant'",
+                                             jdbc_url).collect()
             ticket_price = [row["Unit_Price"] for row in ticket_price]
             ticket_price.insert(0, "All Instant games")
 
@@ -76,8 +87,7 @@ def run_data_extract(spark, jdbc_url):
         by_field = st.selectbox("Sort by", [
             "Turnover",
             "Ticket",
-            "Prize",
-            "GGR"
+            "Prize"
         ])
 
         filters = {"draw_period": draw_periods,
@@ -94,11 +104,11 @@ def run_data_extract(spark, jdbc_url):
             file_name = f"{operator.replace(' ', '_')}.csv"
 
             # To use in local machine
-            # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-            # data.toPandas().to_csv(output_path, index=False)
+            output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+            data.toPandas().to_csv(output_path, index=False)
 
             # For docker run
-            save_csv_file(data, file_name)
+            # save_csv_file(data, file_name)
             
             st.success("✅ **Data successfully extracted, now you can download it.**\n \n "
                     "RG limit, opted out, suspend, close, locked, restricted accounts are already excluded."
