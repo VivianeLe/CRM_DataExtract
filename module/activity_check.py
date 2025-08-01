@@ -92,7 +92,7 @@ def run_activity_check(spark, jdbc_url):
                 
                 by_inactive = result.join(inactive_day, on="User_ID", how="left").fillna("FTP")\
                     .groupBy("inactive_month").agg(
-                        count("User_ID").alias("Player"),
+                        count_distinct("User_ID").alias("Player"),
                         sum("Entries").alias("Ticket sold"),
                         sum("Turnover").alias("Turnover")
                     ).orderBy(

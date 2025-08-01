@@ -130,7 +130,6 @@ def get_deposit(spark, jdbc_url):
     return df
 
 def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None): 
-
     # Get query based on operator selected
     if operator == "All users":
         to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)      
@@ -143,31 +142,46 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
             .join(to_exclude, on="User_ID", how="left_anti") 
     
     elif operator == "Order behavior":
-        orders = get_order(spark, jdbc_url)
-        df = orders.groupBy("User_ID")\
-            .agg(
-                datediff(current_date(), max("DateID")).alias("inactive_days"),
-                sum("Orders").alias("Orders"),
-                sum("Entries").alias("Tickets"),
-                sum("Turnover").alias("Turnover"),
-                sum("Prize").alias("Prize")
-            ).orderBy(col("Turnover").desc())
+        to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)   
+        query = """ SELECT 
+                User_ID,
+                DATEDIFF(DAY, MAX(DateID), GETDATE()) AS inactive_days,
+                SUM(Orders) AS Orders,
+                SUM(Entries) AS Tickets,
+                SUM(Turnover) AS Turnover,
+                SUM(Prize) AS Prize
+                FROM dbo.fact_orders_summary
+                WHERE User_ID NOT IN (SELECT User_ID FROM dbo.vw_abnormal_users)
+                GROUP BY User_ID
+                ORDER BY Turnover DESC
+            """
+        df = run_select_query(spark, query, jdbc_url)\
+            .join(to_exclude, on='User_ID', how='left_anti')
     
     elif operator == "Filter by Lottery Type":
         orders = get_order(spark, jdbc_url)
+        to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)  
 
         if filters["buy_or_not"] == "Buy product":
-            df = orders.filter(col("Lottery")==filters["by_product"])
-            df = df.groupBy("User_ID", "Lottery")\
-            .agg(
-                datediff(current_date(), max("DateID")).alias("inactive_days"),
-                count_distinct("Game_series").alias("distinct_series_bought"),
-                max("Draw_Period").alias("Last_active_period"),
-                sum("Entries").alias("Tickets"),
-                sum("Turnover").alias("Turnover"),
-                sum("Prize").alias("Prize")
-            )
-            df = df.orderBy(col("Turnover").desc())
+            query = f""" 
+                SELECT 
+                    fs.User_ID,
+                    g.Lottery,
+                    DATEDIFF(DAY, MAX(fs.DateID), GETDATE()) AS inactive_days,
+                    COUNT(DISTINCT fs.Game_series) AS distinct_series_bought,
+                    MAX(fs.Draw_Period) AS Last_active_period,
+                    SUM(fs.Entries) AS Tickets,
+                    SUM(fs.Turnover) AS Turnover,
+                    SUM(fs.Prize) AS Prize
+                FROM dbo.fact_orders_summary fs
+                LEFT JOIN dbo.dim_games g ON fs.GameID = g.GameID
+                LEFT JOIN dbo.vw_abnormal_users ab ON fs.User_ID = ab.User_ID
+                WHERE ab.User_ID IS NULL
+                AND g.Lottery = '{filters["by_product"]}'
+                GROUP BY fs.User_ID, g.Lottery            
+                """
+            df = run_select_query(spark, query, jdbc_url)\
+            .join(to_exclude, on='User_ID', how='left_anti')
         
         else: # players not buy product
             df = orders.groupBy("User_ID")\
