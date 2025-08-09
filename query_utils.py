@@ -106,30 +106,35 @@ def query_history(spark, user_ids_df, start_date, jdbc_url):
     return result
 
 def get_order(spark, jdbc_url):
-    to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)   
-    dim_games = run_select_query(spark, "select * from dbo.dim_games", jdbc_url)
-    query = """select DateID, Game_series, User_ID, Orders, 
-                Entries, Turnover, Prize, Draw_Period, GameID
-                from dbo.fact_orders_summary
+    query = """select DateID, fs.Game_series, User_ID, Orders, 
+                Entries, Turnover, Prize, Draw_Period, fs.GameID, g.Lottery
+                from dbo.fact_orders_summary fs
+                join dbo.dim_games g 
+                on fs.GameID = g.GameID
+                WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.vw_abnormal_users ab
+                        WHERE ab.User_ID = fs.User_ID
+                )
             """
-    df = run_select_query(spark, query, jdbc_url).join(to_exclude, on="User_ID", how="left_anti")\
-        .join(dim_games, on="GameID", how="left")
+    df = run_select_query(spark, query, jdbc_url)
     return df
 
-def get_deposit(spark, jdbc_url):
-    to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)   
-    query = """select top_up_id, user_id as User_ID, top_up_state, top_up_amount
-                FROM dbo.fact_deposit
+def get_deposit(spark, jdbc_url):   
+    query = """select d.user_id as User_ID, count(top_up_id) as attempt_transaction,
+                sum(case when top_up_state = 'Success' then top_up_amount end) as success_amount
+                FROM dbo.fact_deposit d
+                WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.vw_abnormal_users ab
+                        WHERE ab.User_ID = d.User_ID
+                )
+                group by d.user_id
                 """
-    df = run_select_query(spark, query, jdbc_url)\
-        .join(to_exclude, on="User_ID", how="left_anti")\
-        .groupBy("User_ID").agg(
-                count("top_up_id").alias("attempt_transaction"),
-                sum(when(col("top_up_state")=='Success', col("top_up_amount"))).alias("success_amount"))
-    
+    df = run_select_query(spark, query, jdbc_url)
     return df
 
-def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None): 
+def extract_data(spark, operator, filters=None, jdbc_url=None): 
     # Get query based on operator selected
     if operator == "All users":
         to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)      
@@ -141,30 +146,56 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
         df = run_select_query(spark, user_query, jdbc_url)\
             .join(to_exclude, on="User_ID", how="left_anti") 
     
-    elif operator == "Order behavior":
-        to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)   
+    elif operator == "Order behavior": 
         query = """ SELECT 
-                User_ID,
+                fs.User_ID,
                 DATEDIFF(DAY, MAX(DateID), GETDATE()) AS inactive_days,
                 SUM(Orders) AS Orders,
                 SUM(Entries) AS Tickets,
                 SUM(Turnover) AS Turnover,
                 SUM(Prize) AS Prize
-                FROM dbo.fact_orders_summary
-                WHERE User_ID NOT IN (SELECT User_ID FROM dbo.vw_abnormal_users)
-                GROUP BY User_ID
-                ORDER BY Turnover DESC
+                FROM dbo.fact_orders_summary fs
+                WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.vw_abnormal_users ab
+                        WHERE ab.User_ID = fs.User_ID
+                )
+                GROUP BY fs.User_ID
             """
-        df = run_select_query(spark, query, jdbc_url)\
-            .join(to_exclude, on='User_ID', how='left_anti')
+        df = run_select_query(spark, query, jdbc_url)
     
     elif operator == "Filter by Lottery Type":
-        orders = get_order(spark, jdbc_url)
-        to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)  
-
         if filters["buy_or_not"] == "Buy product":
-            query = f""" 
-                SELECT 
+            if (filters["by_product"] == 'Lucky Day') and filters["get_LD_player"]:
+                if len(filters["draw_period"]) > 0:
+                    periods = ",".join(str(p) for p in filters["draw_period"])
+                    query = f""" 
+                    SELECT 
+                        distinct User_ID
+                    FROM dbo.fact_orders_summary fs
+                    WHERE GameID = 72
+                    AND Draw_Period in ({periods})
+                    AND NOT EXISTS (
+                            SELECT 1
+                            FROM dbo.vw_abnormal_users ab
+                            WHERE ab.User_ID = fs.User_ID
+                    )       
+                    """
+                else:
+                    query = f""" 
+                    SELECT 
+                        distinct User_ID
+                    FROM dbo.fact_orders_summary fs
+                    WHERE GameID = 72
+                    AND NOT EXISTS (
+                            SELECT 1
+                            FROM dbo.vw_abnormal_users ab
+                            WHERE ab.User_ID = fs.User_ID
+                    )       
+                    """
+            else:
+                query = f""" 
+                    SELECT
                     fs.User_ID,
                     g.Lottery,
                     DATEDIFF(DAY, MAX(fs.DateID), GETDATE()) AS inactive_days,
@@ -173,18 +204,32 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
                     SUM(fs.Entries) AS Tickets,
                     SUM(fs.Turnover) AS Turnover,
                     SUM(fs.Prize) AS Prize
-                FROM dbo.fact_orders_summary fs
-                LEFT JOIN dbo.dim_games g ON fs.GameID = g.GameID
-                LEFT JOIN dbo.vw_abnormal_users ab ON fs.User_ID = ab.User_ID
-                WHERE ab.User_ID IS NULL
-                AND g.Lottery = '{filters["by_product"]}'
-                GROUP BY fs.User_ID, g.Lottery            
-                """
-            df = run_select_query(spark, query, jdbc_url)\
-            .join(to_exclude, on='User_ID', how='left_anti')
+                    FROM dbo.fact_orders_summary fs
+                    JOIN dbo.dim_games g
+                        ON fs.GameID = g.GameID
+                    WHERE g.Lottery = '{filters["by_product"]}'
+                    AND NOT EXISTS (
+                            SELECT 1
+                            FROM dbo.vw_abnormal_users ab
+                            WHERE ab.User_ID = fs.User_ID
+                    )
+                    GROUP BY fs.User_ID, g.Lottery        
+                    """
+            df = run_select_query(spark, query, jdbc_url)
         
         else: # players not buy product
-            df = orders.groupBy("User_ID")\
+            query = """ select distinct User_ID, Lottery
+                FROM dbo.fact_orders_summary fs
+                JOIN dbo.dim_games g
+                on fs.GameID = g.GameID
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.vw_abnormal_users ab
+                    WHERE ab.User_ID = fs.User_ID
+                )
+            """
+            df = run_select_query(spark, query, jdbc_url)
+            df = df.groupBy("User_ID")\
                 .agg(
                     collect_set("Lottery").alias("Product_bought")
                 ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
@@ -228,11 +273,18 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
             df = df.withColumn("Unit_Price", lit(filters["ticket_price"]))
 
 
-    elif operator == "RFM Segments":
-        to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)      
-        df = run_select_query(spark, "select User_ID, Segment from dbo.rfm_score", jdbc_url)\
-            .join(to_exclude, on="User_ID", how="left_anti")\
-            .filter(col("Segment")==segment)
+    elif operator == "RFM Segments":  
+        query = f""" 
+            select User_ID, Segment
+            from dbo.rfm_score r
+            where Segment = '{filters["segment"]}'
+            and NOT EXISTS (
+                            SELECT 1
+                            FROM dbo.vw_abnormal_users ab
+                            WHERE ab.User_ID = r.User_ID
+                    )
+        """   
+        df = run_select_query(spark, query, jdbc_url)
 
     elif operator == "Deposit behavior":
         df = get_deposit(spark, jdbc_url)
@@ -297,11 +349,14 @@ def extract_data(spark, operator, filters=None, segment=None, jdbc_url=None):
                 join dbo.dim_fail_deposit_group f 
                 on d.gateway_memo = f.gateway_memo
                 where fail_group = 'Bank declined'
+                and NOT EXISTS (
+                            SELECT 1
+                            FROM dbo.vw_abnormal_users ab
+                            WHERE ab.User_ID = d.User_ID
+                    )
             """
         deposit = get_deposit(spark, jdbc_url)
-        to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)
         df = run_select_query(spark, query, jdbc_url)\
-            .join(to_exclude, on="User_ID", how="left_anti")\
             .join(deposit, on="User_ID", how="left")
         
     elif operator == "Users must exclude":
