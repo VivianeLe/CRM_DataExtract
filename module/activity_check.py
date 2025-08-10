@@ -117,5 +117,5 @@ def run_activity_check(spark, jdbc_url):
 
             # ---------- download link (base64) ----------
             b64 = base64.b64encode(pdf_bytes).decode()
-            href = f'<a href="data:application/pdf;base64,{b64}" download="summary_report.pdf">📄 Download PDF</a>'
+            href = f'<a href="data:application/pdf;base64,{b64}" download="CRM_campaign_report.pdf">📄 Download PDF</a>'
             st.markdown(href, unsafe_allow_html=True)
