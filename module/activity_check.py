@@ -4,6 +4,7 @@ import datetime
 from spark_session import * 
 from query_utils import *
 import builtins 
+from module.export_pdf import *
 
 def run_activity_check(spark, jdbc_url):
     markdown()
@@ -47,57 +48,30 @@ def run_activity_check(spark, jdbc_url):
             progress_bar.progress(20, text="User list loaded ✅")        
 
             # Query data from Azure SQL
-            result = query_data(spark, user_ids, start_datetime, end_datetime, jdbc_url)
+            by_user, by_Lottery, by_ticket_segment = query_data(spark, user_ids, start_datetime, end_datetime, jdbc_url)
             # get inactive day of Users in list to check
             inactive_day = query_history(spark, user_ids, start_datetime, jdbc_url)
             progress_bar.progress(50, text="Data queried ✅")
 
-            if result.count() == 0:
+            if by_user.count() == 0:
                 st.warning("⚠️ No data found for selected user(s) and time range.")
             else:
-                unique_receiver = user_ids.count()
-                players = result.select("User_ID").distinct().count()
-                tickets = result.groupBy().agg(sum("Entries")).collect()[0][0]
-                turnover = result.groupBy().agg(sum("Turnover")).collect()[0][0]
+                unique_receiver = user_ids.distinct().count()
+                players = by_user.select("User_ID").distinct().count()
+                tickets = by_user.groupBy().agg(sum("Ticket_sold")).collect()[0][0]
+                turnover = by_user.groupBy().agg(sum("Turnover")).collect()[0][0]
                 progress_bar.progress(80, text="Summarizing data ✅")
-
-                by_Lottery = result.groupBy("Lottery").agg(
-                    sum("Entries").alias("Ticket sold"),
-                    sum("Turnover").alias("Turnover")
-                ).toPandas()
-
-                by_user = result.groupBy("User_ID")\
-                    .agg(
-                        sum("Entries").alias("Ticket_sold"),
-                        sum("Turnover").alias("Turnover")
-                    )
                 
-                by_ticket_segment = by_user.withColumn("ticket_segment",
-                            when(
-                                col("Ticket_sold")==1, lit("1")
-                            ).when(
-                                col("Ticket_sold")<=5, lit("<=5")
-                            ).when(
-                                col("Ticket_sold")<=10, lit("<=10")
-                            ).when(
-                                col("Ticket_sold")<=50, lit("<=50")
-                            ).when(
-                                col("Ticket_sold")<=100, lit("<=100")
-                            ).when(
-                                col("Ticket_sold")<=200, lit("<=200")
-                            ).otherwise(lit(">200"))
-                    ).groupBy("ticket_segment").agg(
-                        count("User_ID").alias("Players")
-                    ).orderBy(col("Players").desc()).toPandas()
+                by_ticket_segment = by_ticket_segment.orderBy(col("Players").desc())
                 
-                by_inactive = result.join(inactive_day, on="User_ID", how="left").fillna("FTP")\
+                by_inactive = by_user.join(inactive_day, on="User_ID", how="left").fillna("FTP")\
                     .groupBy("inactive_month").agg(
                         count_distinct("User_ID").alias("Player"),
-                        sum("Entries").alias("Ticket sold"),
+                        sum("Ticket_sold").alias("Ticket sold"),
                         sum("Turnover").alias("Turnover")
                     ).orderBy(
                         col("inactive_month").asc()
-                    ).toPandas()
+                    )
 
                 progress_bar.progress(100, text="Done 🎉")
                 progress_bar.empty()
@@ -126,7 +100,7 @@ def run_activity_check(spark, jdbc_url):
                 st.table(stat)
                 # st.table(result.toPandas().describe())
 
-                st.subheader("🎯 Ticket sold & Turnover by Game Type")
+                st.subheader("🎯 Ticket sold & Turnover by Lottery")
                 st.dataframe(by_Lottery, use_container_width=True)
 
                 st.subheader("🎯 Players by ticket sold")
@@ -134,5 +108,14 @@ def run_activity_check(spark, jdbc_url):
 
                 st.subheader("🎯 Reactivation result")
                 st.dataframe(by_inactive, use_container_width=True)
+            
+            # Create pdf file
+            pdf_bytes = make_pdf(start_datetime, end_datetime, summary_df, stat, 
+                     by_Lottery.toPandas(),
+                     by_ticket_segment.toPandas(),
+                     by_inactive.toPandas())
 
-                
+            # ---------- download link (base64) ----------
+            b64 = base64.b64encode(pdf_bytes).decode()
+            href = f'<a href="data:application/pdf;base64,{b64}" download="summary_report.pdf">📄 Download PDF</a>'
+            st.markdown(href, unsafe_allow_html=True)

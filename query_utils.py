@@ -74,51 +74,92 @@ def update_dim_user(df, table, query, conn_str, jdbc_url):
 
 def query_data(spark, user_ids_df, start_date, end_date, jdbc_url):
     # This function check activity of users after receiving marketing message
-    dim_games = run_select_query(spark, "select * from dbo.dim_games", jdbc_url)
-    query = f""" 
-        select User_ID, Entries, Turnover, Prize, GameID
-        from dbo.fact_orders
+    # Get User_ID from user_ids_df
+    user_id_list = [str(row.User_ID) for row in user_ids_df.collect()]
+
+    # Convert to string('id1','id2',...)
+    user_ids_str = ",".join(f"'{uid}'" for uid in user_id_list)
+
+    by_user_query = f""" 
+        select User_ID, sum(Entries) as Ticket_sold, 
+        sum(Turnover) as Turnover, 
+        sum(Prize) as Prize
+        from dbo.fact_orders o 
         where Creation_date between '{start_date}' and '{end_date}'
+        AND User_ID IN ({user_ids_str})
+        group by User_ID
     """
-    result = run_select_query(spark, query, jdbc_url)\
-        .join(user_ids_df, on="User_ID", how="inner")\
-        .join(dim_games, on="GameID", how="left")
-    return result
+    by_user_result = run_select_query(spark, by_user_query, jdbc_url)
+    
+    by_lottery_query = f""" 
+        select Lottery, sum(Entries) as Ticket_sold, 
+        sum(Turnover) as Turnover, 
+        sum(Prize) as Prize
+        from dbo.fact_orders o 
+        where Creation_date between '{start_date}' and '{end_date}'
+        AND User_ID IN ({user_ids_str})
+        group by Lottery
+    """
+    by_lottery_result = run_select_query(spark, by_lottery_query, jdbc_url)
+
+    by_ticket_query = f"""
+    SELECT
+    seg.ticket_segment,
+    COUNT(DISTINCT seg.User_ID) AS Players
+    FROM (
+        SELECT 
+            u.User_ID,
+            CASE
+                WHEN u.Entries = 1   THEN '1'
+                WHEN u.Entries <= 5  THEN '<=5'
+                WHEN u.Entries <= 10 THEN '<=10'
+                WHEN u.Entries <= 50 THEN '<=50'
+                WHEN u.Entries <= 100 THEN '<=100'
+                WHEN u.Entries <= 200 THEN '<=200'
+                ELSE '>200'
+            END AS ticket_segment
+        FROM (
+            SELECT 
+                User_ID,
+                SUM(Entries)  AS Entries,
+                SUM(Turnover) AS Turnover,
+                SUM(Prize)    AS Prize
+            FROM dbo.fact_orders
+            WHERE CAST(Creation_date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
+            AND User_ID IN ({user_ids_str})
+            GROUP BY User_ID
+        ) u
+        WHERE u.Entries IS NOT NULL
+    ) seg
+    GROUP BY seg.ticket_segment
+    """
+    by_ticket_segment = run_select_query(spark, by_ticket_query, jdbc_url)
+    return by_user_result, by_lottery_result, by_ticket_segment
 
 def query_history(spark, user_ids_df, start_date, jdbc_url):
     # This function check activity of users before receiving MKT messages
     # start date: date of sending MKT campaign
+    user_id_list = [str(row.User_ID) for row in user_ids_df.collect()]
+
+    # Convert to string('id1','id2',...)
+    user_ids_str = ",".join(f"'{uid}'" for uid in user_id_list)
     query = f""" 
-        select User_ID, max(DateID) as last_order_date
+        select User_ID, 
+        concat('>= ', datediff(day, max(DateID), '{start_date}')/30, ' month') as inactive_month
         from dbo.fact_orders
         where Creation_date < '{start_date}'
+        and User_ID in ({user_ids_str})
         group by User_ID
     """
-    df = run_select_query(spark, query, jdbc_url)\
-        .join(user_ids_df, on="User_ID", how="inner")\
-        .withColumn("inactive_days", datediff(to_date(lit(start_date)), to_date(col("last_order_date"))))
+    result = run_select_query(spark, query, jdbc_url)
+        # .withColumn("inactive_days", datediff(to_date(lit(start_date)), to_date(col("last_order_date"))))
 
-    result = df.withColumn("inactive_month", when(
-            col("inactive_days")==0, lit("1 month")
-            ).otherwise(concat(lit("<="), ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
-        )
+    # result = df.withColumn("inactive_month", when(
+    #         col("inactive_days")==0, lit("<=1 month")
+    #         ).otherwise(concat(lit("<="), ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
+    #     )
 
     return result
-
-def get_order(spark, jdbc_url):
-    query = """select DateID, fs.Game_series, User_ID, Orders, 
-                Entries, Turnover, Prize, Draw_Period, fs.GameID, g.Lottery
-                from dbo.fact_orders_summary fs
-                join dbo.dim_games g 
-                on fs.GameID = g.GameID
-                WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM dbo.vw_abnormal_users ab
-                        WHERE ab.User_ID = fs.User_ID
-                )
-            """
-    df = run_select_query(spark, query, jdbc_url)
-    return df
 
 def get_deposit(spark, jdbc_url):   
     query = """select d.user_id as User_ID, count(top_up_id) as attempt_transaction,
@@ -136,15 +177,18 @@ def get_deposit(spark, jdbc_url):
 
 def extract_data(spark, operator, filters=None, jdbc_url=None): 
     # Get query based on operator selected
-    if operator == "All users":
-        to_exclude = run_select_query(spark, "select * from dbo.vw_abnormal_users", jdbc_url)      
+    if operator == "All users":    
         user_query = """ 
                 select User_ID, verification_status, nationality, attempt_depo, FTD, FTP
-                from dbo.dim_user_authentication
+                from dbo.dim_user_authentication u
                 where registerTime is not null
+                AND NOT EXISTS (
+                            SELECT 1
+                            FROM dbo.vw_abnormal_users ab
+                            WHERE ab.User_ID = u.User_ID
+                    )    
             """
-        df = run_select_query(spark, user_query, jdbc_url)\
-            .join(to_exclude, on="User_ID", how="left_anti") 
+        df = run_select_query(spark, user_query, jdbc_url)
     
     elif operator == "Order behavior": 
         query = """ SELECT 
@@ -236,9 +280,23 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                 .filter(~col("Product_bought").contains(filters["by_product"]))
             
     elif operator == "Top N by Draw series":
-        orders = get_order(spark, jdbc_url)
-        df = orders\
-            .filter(col("Lottery")==filters["by_product"])\
+        # Summary order data
+        query = f"""select User_ID, fs.Game_series, Unit_Price, Draw_Period,
+                sum(Entries) as Entries, 
+                sum(Turnover) as Turnover, 
+                sum(Prize) as Prize
+                from dbo.fact_orders_summary fs
+                join dbo.dim_games g 
+                on fs.GameID = g.GameID
+                WHERE Lottery = '{filters["by_product"]}'
+                AND NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.vw_abnormal_users ab
+                        WHERE ab.User_ID = fs.User_ID
+                )
+                group by User_ID, fs.Game_series, Unit_Price, Draw_Period
+            """
+        df = run_select_query(spark, query, jdbc_url)
         
         if filters["by_product"] == "Instant":
             if filters["ticket_price"] != 'All Instant games':
@@ -291,27 +349,48 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
             
     elif operator == "Wallet balance":        
         depo = get_deposit(spark, jdbc_url).filter(col("success_amount")>0)
-        orders = get_order(spark, jdbc_url)
-        withdraw_query = """ 
-            select User_ID, withdrawal_amount 
-            FROM dbo.fact_withdraw
-            WHERE withdrawal_status not in ('Bank reverted', 'Failure') 
+        query = """select fs.User_ID, sum(Turnover) as Turnover,
+                sum(case when GameID = 72 and Prize <100000 then Prize end) as Draw_prize,
+                sum(case when GameID <> 72 then Prize end) as Other_prize
+                from dbo.fact_orders_summary fs
+                WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.vw_abnormal_users ab
+                        WHERE ab.User_ID = fs.User_ID
+                )
+                group by fs.User_ID
             """
-        withdraw = run_select_query(spark, withdraw_query, jdbc_url)\
-            .groupBy("User_ID").agg(sum("withdrawal_amount").alias("withdraw"))\
-            .filter(col("withdraw")>0)
+        prize = run_select_query(spark, query, jdbc_url)
+        withdraw_query = """ 
+            select w.User_ID, sum(withdrawal_amount) as withdraw
+            FROM dbo.fact_withdraw w
+            WHERE withdrawal_status not in ('Bank reverted', 'Failure') 
+            AND NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.vw_abnormal_users ab
+                        WHERE ab.User_ID = w.User_ID
+                )
+            group by w.User_ID
+            having sum(withdrawal_amount) >0
+            """
+        withdraw = run_select_query(spark, withdraw_query, jdbc_url)
 
-        prize = orders.groupBy("User_ID")\
-            .agg(
-                sum("Turnover").alias("Turnover"),
-                sum(when(col("Lottery")!="Lucky Day", col("Prize")).otherwise(0)).alias("Other_prize"),
-                sum(when((col("Lottery")=="Lucky Day") & (col("Prize")<100000), col("Prize")).otherwise(0)).alias("Draw_prize")
-            )
+        # prize = orders.groupBy("User_ID")\
+        #     .agg(
+        #         sum("Turnover").alias("Turnover"),
+        #         sum(when(col("Lottery")!="Lucky Day", col("Prize")).otherwise(0)).alias("Other_prize"),
+        #         sum(when((col("Lottery")=="Lucky Day") & (col("Prize")<100000), col("Prize")).otherwise(0)).alias("Draw_prize")
+        #     )
         refund_query = """
-            select User_ID, sum(Refund_amount) as refund
-            from dbo.fact_refund
+            select r.User_ID, sum(Refund_amount) as refund
+            from dbo.fact_refund r
             where Memo = 'Success'
-            group by User_ID
+            AND NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.vw_abnormal_users ab
+                        WHERE ab.User_ID = r.User_ID
+                )
+            group by r.User_ID
             """
         refund = run_select_query(spark, refund_query, jdbc_url)
         df = depo.join(prize, on="User_ID", how="left")\
