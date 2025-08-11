@@ -62,30 +62,31 @@ def run_activity_check(spark, jdbc_url):
                 turnover = by_user.groupBy().agg(sum("Turnover")).collect()[0][0]
                 progress_bar.progress(80, text="Summarizing data ✅")
                 
-                by_ticket_segment = by_ticket_segment.orderBy(col("Players").desc())
-                
                 by_inactive = by_user.join(inactive_day, on="User_ID", how="left").fillna("FTP")\
                     .groupBy("inactive_month").agg(
-                        count_distinct("User_ID").alias("Player"),
+                        count_distinct("User_ID").alias("Reactivated player"),
                         sum("Ticket_sold").alias("Ticket sold"),
                         sum("Turnover").alias("Turnover")
+                    ).withColumn(
+                        "Avg spend", round(col("Turnover")/col("Reactivated player"),2)
                     ).orderBy(
                         col("inactive_month").asc()
-                    )
+                    ).toPandas()
 
                 progress_bar.progress(100, text="Done 🎉")
-                progress_bar.empty()
+                progress_bar.empty()                
 
                 # --- Show results
                 st.subheader("✅ **Summary Result**")
                 summary_df = pd.DataFrame({
-                "Metric": ["Receiver", "Active players", "Active percentage", "Ticket sold", "Turnover"],
+                "Metric": ["Receiver", "Active players", "Active percentage", "Ticket sold", "Turnover", "Avg spend"],
                 "Value": [
                     f"{int(unique_receiver):,}",
                     f"{int(players):,}",
                     f"{builtins.round(players/unique_receiver*100,2)}%",
                     f"{int(tickets):,}",
-                    f"{int(turnover):,}"
+                    f"{int(turnover):,}",
+                    f"{builtins.round(turnover/players,2)}"
                     ]
                 })
                 st.table(summary_df)
@@ -100,10 +101,10 @@ def run_activity_check(spark, jdbc_url):
                 st.table(stat)
                 # st.table(result.toPandas().describe())
 
-                st.subheader("🎯 Ticket sold & Turnover by Lottery")
+                st.subheader("🎯 By Lottery")
                 st.dataframe(by_Lottery, use_container_width=True)
 
-                st.subheader("🎯 Players by ticket sold")
+                st.subheader("🎯 By ticket sold")
                 st.dataframe(by_ticket_segment, use_container_width=True)
 
                 st.subheader("🎯 Reactivation result")
@@ -111,9 +112,9 @@ def run_activity_check(spark, jdbc_url):
             
             # Create pdf file
             pdf_bytes = make_pdf(start_datetime, end_datetime, summary_df, stat, 
-                     by_Lottery.toPandas(),
-                     by_ticket_segment.toPandas(),
-                     by_inactive.toPandas())
+                     by_Lottery,
+                     by_ticket_segment,
+                     by_inactive)
 
             # ---------- download link (base64) ----------
             b64 = base64.b64encode(pdf_bytes).decode()

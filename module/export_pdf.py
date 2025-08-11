@@ -54,13 +54,13 @@ def make_pdf(start_datetime, end_datetime,
 
     # By Lottery
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "Ticket sold & Turnover by Lottery", ln=1)
+    pdf.cell(0, 8, "By Lottery", ln=1)
     df_to_pdf_table(pdf, by_Lottery, font_size=10)
     pdf.ln(4)
 
     # By ticket segment
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 8, "Players by ticket sold", ln=1)
+    pdf.cell(0, 8, "By ticket sold", ln=1)
     df_to_pdf_table(pdf, by_ticket_segment, font_size=10)
     pdf.ln(4)
 

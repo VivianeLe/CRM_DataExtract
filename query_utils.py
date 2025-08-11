@@ -74,90 +74,69 @@ def update_dim_user(df, table, query, conn_str, jdbc_url):
 
 def query_data(spark, user_ids_df, start_date, end_date, jdbc_url):
     # This function check activity of users after receiving marketing message
-    # Get User_ID from user_ids_df
-    user_id_list = [str(row.User_ID) for row in user_ids_df.collect()]
-
-    # Convert to string('id1','id2',...)
-    user_ids_str = ",".join(f"'{uid}'" for uid in user_id_list)
-
     by_user_query = f""" 
-        select User_ID, sum(Entries) as Ticket_sold, 
+        select User_ID, Lottery, sum(Entries) as Ticket_sold, 
         sum(Turnover) as Turnover, 
         sum(Prize) as Prize
         from dbo.fact_orders o 
         where Creation_date between '{start_date}' and '{end_date}'
-        AND User_ID IN ({user_ids_str})
-        group by User_ID
+        group by User_ID, Lottery
     """
-    by_user_result = run_select_query(spark, by_user_query, jdbc_url)
-    
-    by_lottery_query = f""" 
-        select Lottery, sum(Entries) as Ticket_sold, 
-        sum(Turnover) as Turnover, 
-        sum(Prize) as Prize
-        from dbo.fact_orders o 
-        where Creation_date between '{start_date}' and '{end_date}'
-        AND User_ID IN ({user_ids_str})
-        group by Lottery
-    """
-    by_lottery_result = run_select_query(spark, by_lottery_query, jdbc_url)
+    df = run_select_query(spark, by_user_query, jdbc_url)\
+        .join(user_ids_df, on="User_ID", how='inner')
 
-    by_ticket_query = f"""
-    SELECT
-    seg.ticket_segment,
-    COUNT(DISTINCT seg.User_ID) AS Players
-    FROM (
-        SELECT 
-            u.User_ID,
-            CASE
-                WHEN u.Entries = 1   THEN '1'
-                WHEN u.Entries <= 5  THEN '<=5'
-                WHEN u.Entries <= 10 THEN '<=10'
-                WHEN u.Entries <= 50 THEN '<=50'
-                WHEN u.Entries <= 100 THEN '<=100'
-                WHEN u.Entries <= 200 THEN '<=200'
-                ELSE '>200'
-            END AS ticket_segment
-        FROM (
-            SELECT 
-                User_ID,
-                SUM(Entries)  AS Entries,
-                SUM(Turnover) AS Turnover,
-                SUM(Prize)    AS Prize
-            FROM dbo.fact_orders
-            WHERE CAST(Creation_date AS DATE) BETWEEN '{start_date}' AND '{end_date}'
-            AND User_ID IN ({user_ids_str})
-            GROUP BY User_ID
-        ) u
-        WHERE u.Entries IS NOT NULL
-    ) seg
-    GROUP BY seg.ticket_segment
-    """
-    by_ticket_segment = run_select_query(spark, by_ticket_query, jdbc_url)
+    by_user_result = df.groupBy("User_ID")\
+        .agg(sum("Ticket_sold").alias("Ticket_sold"),
+             sum("Turnover").alias("Turnover"),
+             sum("Prize").alias("Prize"))
+    
+    by_lottery_result = df.groupBy("Lottery")\
+        .agg(count_distinct("User_ID").alias("Player"),
+            sum("Ticket_sold").alias("Ticket_sold"),
+             sum("Turnover").alias("Turnover"),
+             sum("Prize").alias("Prize")
+        ).withColumn(
+        "Avg spend", round(col("Turnover")/col("Player"),2)
+        ).toPandas()
+    
+    by_ticket_segment = by_user_result.withColumn("ticket_segment",
+            when(
+                col("Ticket_sold")==1, lit("1")
+            ).when(
+                col("Ticket_sold")<=5, lit("<=5")
+            ).when(
+                col("Ticket_sold")<=10, lit("<=10")
+            ).when(
+                col("Ticket_sold")<=50, lit("<=50")
+            ).when(
+                col("Ticket_sold")<=100, lit("<=100")
+            ).when(
+                col("Ticket_sold")<=200, lit("<=200")
+            ).otherwise(lit(">200"))
+    ).groupBy("ticket_segment").agg(
+        count_distinct("User_ID").alias("Player"),
+        sum("Ticket_sold").alias("Ticket_sold"),
+        sum("Turnover").alias("Turnover")
+    ).withColumn(
+        "Avg spend", round(col("Turnover")/col("Player"),2)
+    ).orderBy(col("Player").desc()).toPandas()
+        
     return by_user_result, by_lottery_result, by_ticket_segment
 
 def query_history(spark, user_ids_df, start_date, jdbc_url):
     # This function check activity of users before receiving MKT messages
     # start date: date of sending MKT campaign
-    user_id_list = [str(row.User_ID) for row in user_ids_df.collect()]
-
-    # Convert to string('id1','id2',...)
-    user_ids_str = ",".join(f"'{uid}'" for uid in user_id_list)
+    # user_id_list = [str(row.User_ID) for row in user_ids_df.collect()]
+    # user_ids_str = ",".join(f"'{uid}'" for uid in user_id_list)
     query = f""" 
         select User_ID, 
         concat('>= ', datediff(day, max(DateID), '{start_date}')/30, ' month') as inactive_month
         from dbo.fact_orders
         where Creation_date < '{start_date}'
-        and User_ID in ({user_ids_str})
         group by User_ID
     """
-    result = run_select_query(spark, query, jdbc_url)
-        # .withColumn("inactive_days", datediff(to_date(lit(start_date)), to_date(col("last_order_date"))))
-
-    # result = df.withColumn("inactive_month", when(
-    #         col("inactive_days")==0, lit("<=1 month")
-    #         ).otherwise(concat(lit("<="), ceil(col("inactive_days") / 30).cast("string"), lit(" month")))
-    #     )
+    result = run_select_query(spark, query, jdbc_url)\
+        .join(user_ids_df, on="User_ID", how='inner')
 
     return result
 
@@ -204,6 +183,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                         FROM dbo.vw_abnormal_users ab
                         WHERE ab.User_ID = fs.User_ID
                 )
+                and User_ID <> '1'
                 GROUP BY fs.User_ID
             """
         df = run_select_query(spark, query, jdbc_url)
@@ -223,7 +203,8 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                             SELECT 1
                             FROM dbo.vw_abnormal_users ab
                             WHERE ab.User_ID = fs.User_ID
-                    )       
+                    ) 
+                    and fs.User_ID <> '1'      
                     """
                 else:
                     query = f""" 
@@ -235,7 +216,8 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                             SELECT 1
                             FROM dbo.vw_abnormal_users ab
                             WHERE ab.User_ID = fs.User_ID
-                    )       
+                    )   
+                    and fs.User_ID <> '1'    
                     """
             else:
                 query = f""" 
@@ -257,6 +239,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                             FROM dbo.vw_abnormal_users ab
                             WHERE ab.User_ID = fs.User_ID
                     )
+                    and fs.User_ID <> '1'
                     GROUP BY fs.User_ID, g.Lottery        
                     """
             df = run_select_query(spark, query, jdbc_url)
@@ -294,6 +277,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                         FROM dbo.vw_abnormal_users ab
                         WHERE ab.User_ID = fs.User_ID
                 )
+                and fs.User_ID <> '1'
                 group by User_ID, fs.Game_series, Unit_Price, Draw_Period
             """
         df = run_select_query(spark, query, jdbc_url)
@@ -309,24 +293,25 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
             sum("Prize").alias("Prize")
         ]
         
-        if filters["draw_period"]:
+        if (len(filters["draw_period"]) == 0) | (filters["draw_period"] == None): # all periods
+            if (filters["by_product"] == "Lucky Day") | (filters["ticket_price"] == 'All Instant games'):
+                agg_exprs.insert(0, count_distinct("Game_series").alias("distinct_series_bought"))
+            df = df.groupBy(*group_cols).agg(*agg_exprs)\
+                .orderBy(col(filters["by_field"]).desc())\
+                .limit(filters["top"])
+
+        else: # if has draw period
             df = df.filter(col("Draw_Period").isin(filters["draw_period"]))
             group_cols.insert(0, "Draw_Period")
 
-        else: # all periods
-            if (filters["by_product"] == "Lucky Day") | (filters["ticket_price"] == 'All Instant games'):
-                agg_exprs.insert(0, count_distinct("Game_series").alias("distinct_series_bought"))
-        
-        from pyspark.sql.window import Window
+            from pyspark.sql.window import Window
 
-        window_spec = Window.partitionBy("Draw_Period").orderBy(col(filters["by_field"]).desc())
+            window_spec = Window.partitionBy("Draw_Period").orderBy(col(filters["by_field"]).desc())
+            df = df.groupBy(*group_cols).agg(*agg_exprs)
+            df = df.withColumn("Rank", rank().over(window_spec))\
+                .filter(col("Rank") <= filters["top"])\
+                .withColumn("Lottery", lit(filters["by_product"]))\
 
-        df = df.groupBy(*group_cols).agg(*agg_exprs)
-        df = df.withColumn("Rank", rank().over(window_spec))\
-            .filter(col("Rank") <= filters["top"])\
-            .withColumn("Lottery", lit(filters["by_product"]))\
-            # .withColumn("Draw_period", lit(", ".join(map(str, filters["draw_period"]))))\
-        
         if filters["by_product"] == "Instant":
             df = df.withColumn("Unit_Price", lit(filters["ticket_price"]))
 
