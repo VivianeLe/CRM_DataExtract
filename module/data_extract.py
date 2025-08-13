@@ -52,12 +52,12 @@ def run_data_extract(spark, jdbc_url):
             "Not buy product",
             "Only buy product"
         ])
-        if switch == "Buy product":
-            title = "All players who buy: "
-        elif switch == "Not buy product":
-            title = "All players who not buy: "
-        else:
-            title = "All players who only buy: "
+        title_map = {
+        "Buy product": "All players who buy: ",
+        "Not buy product": "All players who not buy: ",
+        "Only buy product": "All players who only buy: "
+        }
+        title = title_map[switch]
         
         by_product = st.selectbox(title, [
                 "Lucky Day",
@@ -66,19 +66,12 @@ def run_data_extract(spark, jdbc_url):
                 "Merchant App"
             ])
         
-        if switch == "Buy product":
-            if by_product == 'Lucky Day':
-                get_LD_player = st.checkbox("Get all players by draw series", False)
-                if get_LD_player:
-                    draw_periods = draw_period_input()
-                else:
-                    draw_periods = None
-            else:
-                get_LD_player = None
-                draw_periods = None
-        else:
-            get_LD_player = None
-            draw_periods = None
+        get_LD_player = None
+        draw_periods = None
+
+        if switch == "Buy product" and by_product == "Lucky Day":
+            get_LD_player = st.checkbox("Get all players by draw series", False)
+            draw_periods = draw_period_input() if get_LD_player else None
 
         filters = {"buy_or_not": switch, 
                    "by_product": by_product, 

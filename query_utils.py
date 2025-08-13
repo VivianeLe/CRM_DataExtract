@@ -244,7 +244,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                     """
             df = run_select_query(spark, query, jdbc_url)
         
-        elif filters["buy_or_not"] == "Not buy product" # players not buy product
+        elif filters["buy_or_not"] == "Not buy product": # players not buy product
             query = """ select distinct User_ID, Lottery
                 FROM dbo.fact_orders_summary fs
                 JOIN dbo.dim_games g
