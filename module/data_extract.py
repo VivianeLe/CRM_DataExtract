@@ -50,24 +50,27 @@ def run_data_extract(spark, jdbc_url):
         switch = st.selectbox("Buy/Not buy", [
             "Buy product",
             "Not buy product",
-            "Only buy product"
+            "Only buy product",
+            "All combinations"
         ])
-        title_map = {
-        "Buy product": "All players who buy: ",
-        "Not buy product": "All players who not buy: ",
-        "Only buy product": "All players who only buy: "
-        }
-        title = title_map[switch]
         
-        by_product = st.selectbox(title, [
-                "Lucky Day",
-                "Instant",
-                "Pick 3",
-                "Merchant App"
-            ])
-        
+        by_product = None
         get_LD_player = None
         draw_periods = None
+
+        if switch != "All combinations":
+            title_map = {
+            "Buy product": "All players who buy: ",
+            "Not buy product": "All players who not buy: ",
+            "Only buy product": "All players who only buy: "
+            }
+            title = title_map[switch]
+            by_product = st.selectbox(title, [
+                    "Lucky Day",
+                    "Instant",
+                    "Pick 3",
+                    "Merchant App"
+                ])
 
         if switch == "Buy product" and by_product == "Lucky Day":
             get_LD_player = st.checkbox("Get all players by draw series", False)
@@ -120,11 +123,11 @@ def run_data_extract(spark, jdbc_url):
             file_name = f"{operator.replace(' ', '_')}.csv"
 
             # To use in local machine
-            # output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
-            # data.toPandas().to_csv(output_path, index=False)
+            output_path = os.path.join(os.path.expanduser("~"), "Downloads", file_name)
+            data.toPandas().to_csv(output_path, index=False)
 
             # For docker run
-            save_csv_file(data, file_name)
+            # save_csv_file(data, file_name)
             
             st.success("✅ **Data successfully extracted, now you can download it.**\n \n "
                     "RG limit, opted out, suspend, close, locked, restricted accounts are already excluded."

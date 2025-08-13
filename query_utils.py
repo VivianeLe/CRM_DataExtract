@@ -120,8 +120,18 @@ def query_data(spark, user_ids_df, start_date, end_date, jdbc_url):
     ).withColumn(
         "Avg spend", round(col("Turnover")/col("Player"),2)
     ).orderBy(col("Player").desc()).toPandas()
+
+    deposit_query = f"""
+        select User_ID, count(*) as attempt_depo,
+        sum(case when top_up_state in ('Handling', 'Success') then top_up_amount end) as success_depo_amount
+        from dbo.fact_deposit 
+        where creation_date between '{start_date}' and '{end_date}'
+        group by User_ID
+        """
+    deposit = run_select_query(spark, deposit_query, jdbc_url)\
+        .join(user_ids_df, on="User_ID", how='inner')
         
-    return by_user_result, by_lottery_result, by_ticket_segment
+    return by_user_result, by_lottery_result, by_ticket_segment, deposit
 
 def query_history(spark, user_ids_df, start_date, jdbc_url):
     # This function check activity of users before receiving MKT messages
@@ -189,6 +199,18 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
         df = run_select_query(spark, query, jdbc_url)
     
     elif operator == "Filter by Lottery Type":
+        query = """ select distinct User_ID, Lottery
+                FROM dbo.fact_orders_summary fs
+                JOIN dbo.dim_games g
+                on fs.GameID = g.GameID
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.vw_abnormal_users ab
+                    WHERE ab.User_ID = fs.User_ID
+                )
+                and fs.User_ID <> '1'
+            """
+        
         if filters["buy_or_not"] == "Buy product":
             if (filters["by_product"] == 'Lucky Day') and filters["get_LD_player"]:
                 if len(filters["draw_period"]) > 0:
@@ -245,16 +267,6 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
             df = run_select_query(spark, query, jdbc_url)
         
         elif filters["buy_or_not"] == "Not buy product": # players not buy product
-            query = """ select distinct User_ID, Lottery
-                FROM dbo.fact_orders_summary fs
-                JOIN dbo.dim_games g
-                on fs.GameID = g.GameID
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM dbo.vw_abnormal_users ab
-                    WHERE ab.User_ID = fs.User_ID
-                )
-            """
             df = run_select_query(spark, query, jdbc_url)
             df = df.groupBy("User_ID")\
                 .agg(
@@ -262,17 +274,14 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                 ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
                 .filter(~col("Product_bought").contains(filters["by_product"]))
         
+        elif filters["buy_or_not"] == "All combinations":
+            df = run_select_query(spark, query, jdbc_url)
+            df = df.groupBy("User_ID")\
+                .agg(
+                    collect_set("Lottery").alias("Product_bought")
+                ).withColumn("Product_bought", concat_ws(", ", sort_array(col("Product_bought"))))
+            
         else: # only buy product
-            query = """ select distinct User_ID, Lottery
-                FROM dbo.fact_orders_summary fs
-                JOIN dbo.dim_games g
-                on fs.GameID = g.GameID
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM dbo.vw_abnormal_users ab
-                    WHERE ab.User_ID = fs.User_ID
-                )
-            """
             df = run_select_query(spark, query, jdbc_url)
             df = df.groupBy("User_ID")\
                 .agg(
@@ -361,6 +370,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                         FROM dbo.vw_abnormal_users ab
                         WHERE ab.User_ID = fs.User_ID
                 )
+                and fs.User_ID <> '1'
                 group by fs.User_ID
             """
         prize = run_select_query(spark, query, jdbc_url)

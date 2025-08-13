@@ -27,6 +27,7 @@ def df_to_pdf_table(pdf: FPDF, df: pd.DataFrame, col_widths=None, font_size=10):
 
 def make_pdf(start_datetime, end_datetime, 
              summary_df: pd.DataFrame,
+             deposit_df: pd.DataFrame,
              stat_df: pd.DataFrame,
              by_Lottery: pd.DataFrame,
              by_ticket_segment: pd.DataFrame,
@@ -42,8 +43,13 @@ def make_pdf(start_datetime, end_datetime,
     # Summary Result
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 8, "Overview", ln=1)
-
     df_to_pdf_table(pdf, summary_df, font_size=10)
+    pdf.ln(4)
+
+    # Deposit Result
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 8, "Deposit", ln=1)
+    df_to_pdf_table(pdf, deposit_df, font_size=10)
     pdf.ln(4)
 
     # Ticket sold & Turnover statistic

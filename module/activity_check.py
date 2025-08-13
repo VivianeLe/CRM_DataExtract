@@ -48,7 +48,7 @@ def run_activity_check(spark, jdbc_url):
             progress_bar.progress(20, text="User list loaded ✅")        
 
             # Query data from Azure SQL
-            by_user, by_Lottery, by_ticket_segment = query_data(spark, user_ids, start_datetime, end_datetime, jdbc_url)
+            by_user, by_Lottery, by_ticket_segment, deposit = query_data(spark, user_ids, start_datetime, end_datetime, jdbc_url)
             # get inactive day of Users in list to check
             inactive_day = query_history(spark, user_ids, start_datetime, jdbc_url)
             progress_bar.progress(50, text="Data queried ✅")
@@ -57,6 +57,14 @@ def run_activity_check(spark, jdbc_url):
                 st.warning("⚠️ No data found for selected user(s) and time range.")
             else:
                 unique_receiver = user_ids.distinct().count()
+                deposit_user = deposit.select("User_ID").distinct().count()
+                deposit_transaction = deposit.groupBy().agg(sum("attempt_depo")).collect()[0][0]
+                deposit_success_user = deposit.filter(col("success_depo_amount")>0).select("User_ID").distinct().count()
+                deposit_amount = deposit.groupBy().agg(sum("success_depo_amount")).collect()[0][0]
+                deposit_min = deposit.groupBy().agg(min("success_depo_amount")).collect()[0][0]
+                deposit_max = deposit.groupBy().agg(max("success_depo_amount")).collect()[0][0]
+                deposit_avg = deposit.groupBy().agg(avg("success_depo_amount")).collect()[0][0]
+
                 players = by_user.select("User_ID").distinct().count()
                 tickets = by_user.groupBy().agg(sum("Ticket_sold")).collect()[0][0]
                 turnover = by_user.groupBy().agg(sum("Turnover")).collect()[0][0]
@@ -91,7 +99,25 @@ def run_activity_check(spark, jdbc_url):
                 })
                 st.table(summary_df)
 
-                st.write("**Ticket sold and Turnover statistic**")
+                st.subheader("🎯 Deposit")
+                deposit_df = pd.DataFrame(
+                    {
+                        "Metric": ["Attempt deposit users", "Total transaction (attempt)", "Success users",
+                                    "Success deposit amount", "Min amount", "Avg amount", "Max amount"],
+                        "Value": [
+                            f"{int(deposit_user):,}",
+                            f"{int(deposit_transaction):,}",
+                            f"{int(deposit_success_user):,}",
+                            f"{int(deposit_amount):,}",
+                            f"{int(deposit_min):,}",
+                            f"{builtins.round(deposit_avg, 2)}",
+                            f"{int(deposit_max):,}"
+                        ]
+                    }
+                )
+                st.table(deposit_df)
+
+                st.subheader("🎯 Ticket sold and Turnover statistic")
                 stat = by_user.toPandas().describe().reset_index()
                 stat.loc[stat['index'] == 'mean', 'index'] = 'average'
                 stat.loc[stat['index'] == '50%', 'index'] = 'median'
@@ -99,7 +125,7 @@ def run_activity_check(spark, jdbc_url):
                 stat.iloc[:, 1:] = stat.iloc[:, 1:].round(2)
                 stat.iloc[:, 1:] = stat.iloc[:, 1:].applymap(lambda x: f"{x:.2f}")
                 st.table(stat)
-                # st.table(result.toPandas().describe())
+                # st.table(result.toPandas().describe())``
 
                 st.subheader("🎯 By Lottery")
                 st.dataframe(by_Lottery, use_container_width=True)
@@ -111,10 +137,14 @@ def run_activity_check(spark, jdbc_url):
                 st.dataframe(by_inactive, use_container_width=True)
             
             # Create pdf file
-            pdf_bytes = make_pdf(start_datetime, end_datetime, summary_df, stat, 
-                     by_Lottery,
-                     by_ticket_segment,
-                     by_inactive)
+            pdf_bytes = make_pdf(start_datetime, 
+                                 end_datetime, 
+                                 summary_df, 
+                                 deposit_df,
+                                stat, 
+                                by_Lottery,
+                                by_ticket_segment,
+                                by_inactive)
 
             # ---------- download link (base64) ----------
             b64 = base64.b64encode(pdf_bytes).decode()
