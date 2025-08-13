@@ -244,7 +244,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                     """
             df = run_select_query(spark, query, jdbc_url)
         
-        else: # players not buy product
+        elif filters["buy_or_not"] == "Not buy product" # players not buy product
             query = """ select distinct User_ID, Lottery
                 FROM dbo.fact_orders_summary fs
                 JOIN dbo.dim_games g
@@ -261,6 +261,24 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                     collect_set("Lottery").alias("Product_bought")
                 ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
                 .filter(~col("Product_bought").contains(filters["by_product"]))
+        
+        else: # only buy product
+            query = """ select distinct User_ID, Lottery
+                FROM dbo.fact_orders_summary fs
+                JOIN dbo.dim_games g
+                on fs.GameID = g.GameID
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.vw_abnormal_users ab
+                    WHERE ab.User_ID = fs.User_ID
+                )
+            """
+            df = run_select_query(spark, query, jdbc_url)
+            df = df.groupBy("User_ID")\
+                .agg(
+                    collect_set("Lottery").alias("Product_bought")
+                ).withColumn("Product_bought", concat_ws(", ", col("Product_bought")))\
+                .filter(col("Product_bought")==filters["by_product"])
             
     elif operator == "Top N by Draw series":
         # Summary order data

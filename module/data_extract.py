@@ -49,15 +49,24 @@ def run_data_extract(spark, jdbc_url):
     elif operator == "Filter by Lottery Type":
         switch = st.selectbox("Buy/Not buy", [
             "Buy product",
-            "Not buy product"
+            "Not buy product",
+            "Only buy product"
         ])
         if switch == "Buy product":
-            by_product = st.selectbox("All players who buy: ", [
+            title = "All players who buy: "
+        elif switch == "Not buy product":
+            title = "All players who not buy: "
+        else:
+            title = "All players who only buy: "
+        
+        by_product = st.selectbox(title, [
                 "Lucky Day",
                 "Instant",
                 "Pick 3",
                 "Merchant App"
             ])
+        
+        if switch == "Buy product":
             if by_product == 'Lucky Day':
                 get_LD_player = st.checkbox("Get all players by draw series", False)
                 if get_LD_player:
@@ -68,14 +77,9 @@ def run_data_extract(spark, jdbc_url):
                 get_LD_player = None
                 draw_periods = None
         else:
-            by_product = st.selectbox("All players who not buy: ", [
-                "Lucky Day",
-                "Instant",
-                "Pick 3",
-                "Merchant App"
-            ])
             get_LD_player = None
             draw_periods = None
+
         filters = {"buy_or_not": switch, 
                    "by_product": by_product, 
                    "get_LD_player": get_LD_player,
