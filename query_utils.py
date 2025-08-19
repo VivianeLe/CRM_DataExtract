@@ -361,7 +361,8 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
             
     elif operator == "Wallet balance":        
         depo = get_deposit(spark, jdbc_url).filter(col("success_amount")>0)
-        query = """select fs.User_ID, sum(Turnover) as Turnover,
+        query = """select fs.User_ID, sum(Turnover) as Turnover, 
+                DATEDIFF(DAY, MAX(DateID), GETDATE()) AS inactive_days,
                 sum(case when GameID = 72 and Prize <100000 then Prize end) as Draw_prize,
                 sum(case when GameID <> 72 then Prize end) as Other_prize
                 from dbo.fact_orders_summary fs
@@ -432,7 +433,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                                     .when(col("balance")<=5000, lit("<=5000"))\
                                         .otherwise(lit(">5000"))
                             )\
-                .select("User_ID", "balance", "Withdrawable_amount", "balance_group")
+                .select("User_ID", "balance", "Withdrawable_amount", "balance_group", "inactive_days")
         
     elif operator == "Bank-declined users":
         query = """ 
