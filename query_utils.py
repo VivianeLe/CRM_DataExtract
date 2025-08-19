@@ -168,7 +168,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
     # Get query based on operator selected
     if operator == "All users":    
         user_query = """ 
-                select User_ID, verification_status, nationality, attempt_depo, FTD, FTP
+                select User_ID, registerTime, verification_status, nationality, attempt_depo, FTD, FTP
                 from dbo.dim_user_authentication u
                 where registerTime is not null
                 AND NOT EXISTS (
