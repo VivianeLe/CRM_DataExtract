@@ -25,7 +25,7 @@ def df_to_pdf_table(pdf: FPDF, df: pd.DataFrame, col_widths=None, font_size=10):
             pdf.cell(w, 7, txt, border=1, ln=0)
         pdf.ln(7)
 
-def make_pdf(start_datetime, end_datetime, 
+def make_pdf(start_datetime, end_datetime, report_title,
              summary_df: pd.DataFrame,
              deposit_df: pd.DataFrame,
              stat_df: pd.DataFrame,
@@ -36,7 +36,8 @@ def make_pdf(start_datetime, end_datetime,
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, "CRM Campaign Report", ln=0)
+    # Set report title
+    pdf.cell(0, 10, report_title, ln=0)
     pdf.set_font("Arial", "", 10)
     pdf.cell(0, 10, f"From: {start_datetime}   To: {end_datetime}", ln=1, align="R")
 

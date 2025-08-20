@@ -117,9 +117,25 @@ def query_data(spark, user_ids_df, start_date, end_date, jdbc_url):
         count_distinct("User_ID").alias("Player"),
         sum("Ticket_sold").alias("Ticket_sold"),
         sum("Turnover").alias("Turnover")
+    ).withColumn("to_sort",
+            when(
+                col("ticket_segment")=='1', lit("1")
+            ).when(
+                col("ticket_segment")=='<=5', lit("2")
+            ).when(
+                col("ticket_segment")=='<=10', lit("3")
+            ).when(
+                col("ticket_segment")=='<=50', lit("4")
+            ).when(
+                col("ticket_segment")=='<=100', lit("5")
+            ).when(
+                col("ticket_segment")=='<=200', lit("6")
+            ).otherwise(lit("7"))
     ).withColumn(
         "Avg spend", round(col("Turnover")/col("Player"),2)
-    ).orderBy(col("Player").desc()).toPandas()
+    ).orderBy(col("to_sort").asc())\
+    .drop("to_sort")\
+    .toPandas()
 
     deposit_query = f"""
         select User_ID, count(*) as attempt_depo,

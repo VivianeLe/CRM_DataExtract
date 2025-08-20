@@ -31,6 +31,7 @@ def run_activity_check(spark, jdbc_url):
 
     start_datetime = datetime.datetime.combine(start_date, start_time)
     end_datetime = datetime.datetime.combine(end_date, end_time)
+    report_title = st.text_input("Report title: ")
 
     if st.button("🚀 Submit"):
         if not uploaded_file:
@@ -139,6 +140,7 @@ def run_activity_check(spark, jdbc_url):
             # Create pdf file
             pdf_bytes = make_pdf(start_datetime, 
                                  end_datetime, 
+                                 report_title,
                                  summary_df, 
                                  deposit_df,
                                 stat, 
