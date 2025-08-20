@@ -140,7 +140,7 @@ def run_data_extract(spark, jdbc_url):
     st.markdown("---")
     st.write("Validate your list before running campaign: ")
     if st.button("📛 Download must-exclude users"):
-        data = extract_data(spark, "Users must exclude", None, None, jdbc_url)
+        data = extract_data(spark, "Users must exclude", None, jdbc_url)
         st.write(data.count(), " users must be excluded from Marketing campaigns")
 
         file_name = "Must_exclude_users.csv"
