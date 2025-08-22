@@ -213,12 +213,30 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                 GROUP BY fs.User_ID
             """
         df = run_select_query(spark, query, jdbc_url)
-    
-    elif operator == "Filter by Lottery Type":
+
+    elif operator == "Winners by Lottery Type":
+        query = f""" select User_ID, Draw_Period, sum(Prize) as total_prize
+                FROM dbo.fact_orders fs
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.vw_abnormal_users ab
+                    WHERE ab.User_ID = fs.User_ID
+                )
+                and Lottery = '{filters["by_product"]}'
+                and Prize > 0
+                and fs.User_ID <> '1'
+                group by User_ID, Draw_Period
+            """
+        if (len(filters["draw_period"]) == 0) | (filters["draw_period"] == None): # all draw
+            df = run_select_query(spark, query, jdbc_url)\
+                .orderBy(col("Draw_Period").desc())
+        else:
+            df = run_select_query(spark, query, jdbc_url)\
+            .filter(col("Draw_Period").isin(filters["draw_period"]))
+
+    elif operator == "Players by Lottery Type":
         query = """ select distinct User_ID, Lottery
-                FROM dbo.fact_orders_summary fs
-                JOIN dbo.dim_games g
-                on fs.GameID = g.GameID
+                FROM dbo.fact_orders fs
                 WHERE NOT EXISTS (
                     SELECT 1
                     FROM dbo.vw_abnormal_users ab
