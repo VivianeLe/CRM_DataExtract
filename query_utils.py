@@ -215,7 +215,7 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
         df = run_select_query(spark, query, jdbc_url)
 
     elif operator == "Winners by Lottery Type":
-        query = f""" select User_ID, Draw_Period, sum(Prize) as total_prize
+        query = f""" select User_ID, Draw_Period, Series_No, sum(Prize) as total_prize
                 FROM dbo.fact_orders fs
                 WHERE NOT EXISTS (
                     SELECT 1
@@ -225,14 +225,21 @@ def extract_data(spark, operator, filters=None, jdbc_url=None):
                 and Lottery = '{filters["by_product"]}'
                 and Prize > 0
                 and fs.User_ID <> '1'
-                group by User_ID, Draw_Period
+                group by User_ID, Draw_Period, Series_No
             """
         if (len(filters["draw_period"]) == 0) | (filters["draw_period"] == None): # all draw
             df = run_select_query(spark, query, jdbc_url)\
-                .orderBy(col("Draw_Period").desc())
+                .orderBy(col("Draw_Period").desc())\
+                .select("User_ID", "Draw_Period").distinct()
         else:
-            df = run_select_query(spark, query, jdbc_url)\
-            .filter(col("Draw_Period").isin(filters["draw_period"]))
+            if filters["by_product"] != 'Pick 3':
+                df = run_select_query(spark, query, jdbc_url)\
+                .filter(col("Draw_Period").isin(filters["draw_period"]))\
+                .select("User_ID", "Draw_Period").distinct()
+            else: 
+                df = run_select_query(spark, query, jdbc_url)\
+                .filter(col("Series_No").isin(filters["draw_period"]))\
+                .select("User_ID", "Series_No").distinct()
 
     elif operator == "Players by Lottery Type":
         query = """ select distinct User_ID, Lottery

@@ -4,7 +4,7 @@ from query_utils import *
 
 def run_data_extract(spark, jdbc_url):
     def draw_period_input():
-        draw_period_input = st.text_input("Draw period (enter numbers separated by commas, e.g. 3,5,6 or leave blank for all)")
+        draw_period_input = st.text_input("Draw ID (enter numbers separated by commas (e.g. 3,5,6) or leave blank for all draws)")
         if draw_period_input.strip():
             try:
                 draw_periods = [int(x.strip()) for x in draw_period_input.split(',') if x.strip().isdigit()]
@@ -90,6 +90,8 @@ def run_data_extract(spark, jdbc_url):
             "Pick 3",
             "Merchant App"
         ])
+        if by_product == "Pick 3":
+            st.warning("For pick 3, type series number (e.g: 250822) as Draw ID")
         draw_periods = draw_period_input()
         filters = {"draw_period": draw_periods,
                   "by_product": by_product}
